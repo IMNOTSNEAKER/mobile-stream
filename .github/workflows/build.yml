@@ -1,0 +1,44 @@
+name: Build Android APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Buildozer dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev libffi-dev
+
+      - name: Install Buildozer
+        run: pip install --upgrade buildozer
+
+      - name: Build APK with Buildozer
+        run: |
+          # إنشاء إعدادات البناء الافتراضية
+          buildozer init
+          # تعديل اسم التطبيق وحزمته تلقائياً
+          sed -i 's/# title = My Application/title = MobileStream/' buildozer.spec
+          sed -i 's/# package.name = myapp/package.name = mobilestream/' buildozer.spec
+          sed -i 's/# package.domain = org.test/package.domain = org.imnotsneaker/' buildozer.spec
+          sed -i 's/requirements = python3,kivy/requirements = python3,kivy,flask,opencv,requests,gevent/g' buildozer.spec
+          
+          # بدء عملية بناء الـ APK
+          buildozer -v android debug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: android-apk
+          path: bin/*.apk
