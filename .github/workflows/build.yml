@@ -32,35 +32,26 @@ jobs:
         run: |
           buildozer init
           
-          # تعديل ملف buildozer.spec باستخدام Python لضمان كتابة الإعدادات الصحيحة 100%
+          # استبدال الإعدادات باستخدام Regex لتجنب تكرار الخيارات داخل buildozer.spec
           python3 -c "
+          import re
+
           with open('buildozer.spec', 'r') as f:
-              lines = f.readlines()
+              content = f.read()
 
-          new_lines = []
-          for line in lines:
-              if line.startswith('title ='):
-                  new_lines.append('title = MobileStream\n')
-              elif line.startswith('package.name ='):
-                  new_lines.append('package.name = mobilestream\n')
-              elif line.startswith('package.domain ='):
-                  new_lines.append('package.domain = org.imnotsneaker\n')
-              elif line.startswith('requirements ='):
-                  new_lines.append('requirements = python3,kivy,flask,numpy,opencv,requests\n')
-              elif line.startswith('android.archs ='):
-                  new_lines.append('android.archs = arm64-v8a\n')
-              elif 'android.ndk =' in line or 'android.ndk_version =' in line:
-                  continue
-              else:
-                  new_lines.append(line)
-
-          # إضافة إعدادات NDK 25b والمستوى وتفاصيل السجل
-          new_lines.append('\nandroid.ndk = 25b\n')
-          new_lines.append('android.accept_sdk_license = True\n')
-          new_lines.append('log_level = 2\n')
+          # استبدال القيم الحالية بدلاً من إضافتها من جديد
+          content = re.sub(r'^#?\s*title\s*=.*', 'title = MobileStream', content, flags=re.MULTILINE)
+          content = re.sub(r'^#?\s*package\.name\s*=.*', 'package.name = mobilestream', content, flags=re.MULTILINE)
+          content = re.sub(r'^#?\s*package\.domain\s*=.*', 'package.domain = org.imnotsneaker', content, flags=re.MULTILINE)
+          content = re.sub(r'^#?\s*requirements\s*=.*', 'requirements = python3,kivy,flask,numpy,opencv,requests', content, flags=re.MULTILINE)
+          content = re.sub(r'^#?\s*android\.archs\s*=.*', 'android.archs = arm64-v8a', content, flags=re.MULTILINE)
+          content = re.sub(r'^#?\s*android\.ndk\s*=.*', 'android.ndk = 25b', content, flags=re.MULTILINE)
+          content = re.sub(r'^#?\s*android\.ndk_version\s*=.*', 'android.ndk_version = 25b', content, flags=re.MULTILINE)
+          content = re.sub(r'^#?\s*android\.accept_sdk_license\s*=.*', 'android.accept_sdk_license = True', content, flags=re.MULTILINE)
+          content = re.sub(r'^#?\s*log_level\s*=.*', 'log_level = 2', content, flags=re.MULTILINE)
 
           with open('buildozer.spec', 'w') as f:
-              f.writelines(new_lines)
+              f.write(content)
           "
 
           # بدء عملية التجميع
