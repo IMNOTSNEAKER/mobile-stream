@@ -22,7 +22,7 @@ jobs:
           sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config \
             zlib1g-dev libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev \
             libssl-dev libffi-dev cmake ninja-build lld clang ccache gfortran \
-            libgl1-mesa-dev libgles2-mesa-dev
+            libgl1-mesa-dev libgles2-mesa-dev libjpeg-dev libpng-dev
           pip install --upgrade pip
           pip install buildozer cython
 
@@ -35,7 +35,7 @@ jobs:
         run: |
           buildozer init
           
-          # استبدال opencv بـ pillow داخل buildozer.spec لتجنب أخطاء تجميع C++
+          # ضبط المتطلبات مع إضافة openssl وإذونات الإنترنت
           python3 -c "
           import re
 
@@ -46,7 +46,8 @@ jobs:
               (r'^#?\s*title\s*=.*', 'title = MobileStream'),
               (r'^#?\s*package\.name\s*=.*', 'package.name = mobilestream'),
               (r'^#?\s*package\.domain\s*=.*', 'package.domain = org.imnotsneaker'),
-              (r'^#?\s*requirements\s*=.*', 'requirements = python3,kivy,flask,pillow,requests'),
+              (r'^#?\s*requirements\s*=.*', 'requirements = python3,kivy,flask,requests,openssl,pillow'),
+              (r'^#?\s*android\.permissions\s*=.*', 'android.permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE'),
               (r'^#?\s*android\.archs\s*=.*', 'android.archs = arm64-v8a'),
               (r'^#?\s*android\.ndk\s*=.*', 'android.ndk = 25b'),
               (r'^#?\s*android\.ndk_version\s*=.*', 'android.ndk_version = 25b'),
@@ -61,7 +62,7 @@ jobs:
               f.write(content)
           "
 
-          # بدء عملية التجميع
+          # بدء التجميع
           buildozer -v android debug
 
       - name: Upload APK Artifact
