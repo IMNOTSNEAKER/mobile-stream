@@ -150,6 +150,19 @@ jobs:
           path: buildozer.log
           if-no-files-found: ignore
 
+      - name: Print build failure details
+        if: failure()
+        run: |
+          echo "===== Likely failure lines ====="
+          if [ -f buildozer.log ]; then
+            grep -nEi "error:|exception|failed|fatal|traceback" \
+              buildozer.log | tail -100 || true
+            echo "===== Last 200 lines ====="
+            tail -200 buildozer.log
+          else
+            echo "buildozer.log was not created"
+          fi
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
