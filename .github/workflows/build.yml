@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -26,15 +26,11 @@ jobs:
 
       - name: Build APK with Buildozer
         run: |
-          # إنشاء إعدادات البناء الافتراضية
           buildozer init
-          # تعديل اسم التطبيق وحزمته تلقائياً
           sed -i 's/# title = My Application/title = MobileStream/' buildozer.spec
           sed -i 's/# package.name = myapp/package.name = mobilestream/' buildozer.spec
           sed -i 's/# package.domain = org.test/package.domain = org.imnotsneaker/' buildozer.spec
           sed -i 's/requirements = python3,kivy/requirements = python3,kivy,flask,opencv,requests,gevent/g' buildozer.spec
-          
-          # بدء عملية بناء الـ APK
           buildozer -v android debug
 
       - name: Upload APK Artifact
