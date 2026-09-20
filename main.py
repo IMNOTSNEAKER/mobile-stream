@@ -60,6 +60,7 @@ def index():
     if not auth or not check_auth(auth.username, auth.password):
         return authenticate()
 
+    # تم تعديل واجهة المستخدم هنا لإضافة Downloading والنقط المتحركة
     return '''
     <!DOCTYPE html>
     <html lang="ar">
@@ -68,12 +69,59 @@ def index():
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <title>Mobile Screen Share</title>
         <style>
-            body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-            img { height: 100%; object-fit: contain; }
+            body { 
+                margin: 0; 
+                background: #000; 
+                display: flex; 
+                justify-content: center; 
+                align-items: center; 
+                height: 100vh; 
+                overflow: hidden; 
+                color: #00ff00; /* لون النص أخضر ساطع */
+                font-family: 'Courier New', Courier, monospace; /* خط يشبه شاشات الاختراق/التحميل */
+            }
+            
+            /* إعدادات نص التحميل والنقط */
+            #loading-screen {
+                position: absolute;
+                font-size: 24px;
+                font-weight: bold;
+                display: flex;
+                align-items: center;
+                z-index: 1;
+            }
+
+            /* حركة النقط */
+            .dots::after {
+                content: '';
+                animation: blink 1.5s steps(4, end) infinite;
+            }
+
+            @keyframes blink {
+                0%, 20% { content: ''; }
+                40% { content: '.'; }
+                60% { content: '..'; }
+                80%, 100% { content: '...'; }
+            }
+
+            /* إعدادات الصورة (مخفية في البداية حتى تحمل) */
+            img { 
+                height: 100%; 
+                object-fit: contain; 
+                z-index: 2;
+                position: relative;
+                display: none; /* إخفاء الصورة في البداية */
+            }
         </style>
     </head>
     <body>
-        <img src="/video_feed" />
+        <!-- شاشة التحميل -->
+        <div id="loading-screen">Downloading<span class="dots"></span></div>
+        
+        <!-- الصورة: إذا نجح التحميل يتم إخفاء شاشة التحميل وإظهار الصورة -->
+        <img src="/video_feed" 
+             onload="document.getElementById('loading-screen').style.display='none'; this.style.display='block';" 
+             onerror="document.getElementById('loading-screen').style.display='flex'; this.style.display='none';" />
     </body>
     </html>
     '''
