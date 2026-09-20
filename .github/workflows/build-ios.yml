@@ -1,0 +1,82 @@
+name: Build iOS App
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios-simulator:
+    # iOS builds require macOS and Xcode.
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install kivy-ios
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install kivy-ios
+
+      - name: Build iOS Python and Kivy recipes
+        run: |
+          toolchain build hostpython3
+          toolchain build python3 kivy flask pillow --arch=arm64
+
+          # requests is pure Python and is installed into the iOS Python
+          # distribution used by the generated Xcode project.
+          toolchain pip install requests
+
+      - name: Create Xcode project
+        run: |
+          toolchain create MobileStream "$GITHUB_WORKSPACE"
+
+      - name: Build iOS Simulator app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJECT="$(find . -maxdepth 3 -name '*.xcodeproj' -print -quit)"
+          if [ -z "$PROJECT" ]; then
+            echo "No Xcode project was generated"
+            exit 1
+          fi
+
+          SCHEME="$(basename "$PROJECT" .xcodeproj)"
+          echo "Project: $PROJECT"
+          echo "Scheme: $SCHEME"
+
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -arch arm64 \
+            -derivedDataPath ios-build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+          APP_PATH="$(find ios-build/Build/Products -type d -name '*.app' -print -quit)"
+          if [ -z "$APP_PATH" ]; then
+            echo "No iOS Simulator .app was produced"
+            exit 1
+          fi
+
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$APP_PATH" MobileStream-ios-simulator.zip
+
+      - name: Upload iOS Simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: MobileStream-ios-simulator.zip
+          if-no-files-found: error
