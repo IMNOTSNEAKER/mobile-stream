@@ -132,6 +132,13 @@ jobs:
 
       - name: Build debug APK
         run: |
+          # GitHub-hosted runners export a different NDK through these names.
+          # Buildozer uses ANDROIDNDK internally, so avoid mixing both setups.
+          unset ANDROID_NDK
+          unset ANDROID_NDK_HOME
+          unset ANDROID_NDK_ROOT
+          unset ANDROID_NDK_LATEST_HOME
+
           set -o pipefail
           buildozer -v android debug 2>&1 | tee buildozer.log
 
