@@ -176,7 +176,5 @@ if __name__ == "__main__":
     PORT = 8080
     threading.Thread(target=start_tunnel, args=(PORT,), daemon=True).start()
 
-    from gevent.pywsgi import WSGIServer
-
-    http_server = WSGIServer(('0.0.0.0', PORT), app)
-    http_server.serve_forever()
+    # تشغيل سيرفر Flask المدمج مع دعم تعدد المسارات على أندرويد
+    app.run(host='0.0.0.0', port=PORT, threaded=True)
