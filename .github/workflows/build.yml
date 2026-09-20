@@ -4,9 +4,13 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -14,59 +18,134 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
-      - name: Install Build Dependencies
-        run: |
-          sudo apt update -y
-          sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config \
-            zlib1g-dev libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev \
-            libssl-dev libffi-dev cmake ninja-build lld clang ccache gfortran \
-            libgl1-mesa-dev libgles2-mesa-dev libjpeg-dev libpng-dev
-          
-          pip install --upgrade pip
-          pip install "Cython==0.29.36" virtualenv buildozer
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
-      - name: Configure buildozer.spec and Build
-        env:
-          ANDROID_NDK_HOME: ""
-          ANDROID_NDK_ROOT: ""
-          ANDROID_NDK: ""
-          ANDROID_NDK_LATEST_HOME: ""
+      - name: Install build dependencies
         run: |
-          buildozer init
-          
-          python3 -c "
+          sudo apt-get update
+          sudo apt-get install -y \
+            git \
+            zip \
+            unzip \
+            autoconf \
+            libtool \
+            pkg-config \
+            zlib1g-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            libreadline-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            libffi-dev \
+            cmake \
+            ninja-build \
+            lld \
+            clang \
+            ccache \
+            gfortran \
+            libgl1-mesa-dev \
+            libgles2-mesa-dev \
+            libjpeg-dev \
+            libpng-dev
+
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install \
+            "Cython==0.29.36" \
+            virtualenv \
+            buildozer
+
+      - name: Configure buildozer.spec
+        shell: bash
+        run: |
+          # Do not run "buildozer init" when the project already has a spec file.
+          if [ ! -f buildozer.spec ]; then
+            buildozer init
+          fi
+
+          python3 - <<'PY'
           import re
 
-          with open('buildozer.spec', 'r') as f:
-              content = f.read()
+          path = "buildozer.spec"
+
+          with open(path, "r", encoding="utf-8") as file:
+              content = file.read()
 
           replacements = [
-              (r'^#?\s*title\s*=.*', 'title = MobileStream'),
-              (r'^#?\s*package\.name\s*=.*', 'package.name = mobilestream'),
-              (r'^#?\s*package\.domain\s*=.*', 'package.domain = org.imnotsneaker'),
-              (r'^#?\s*requirements\s*=.*', 'requirements = python3,kivy,flask,requests,openssl,libffi,pillow'),
-              (r'^#?\s*android\.permissions\s*=.*', 'android.permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE'),
-              (r'^#?\s*android\.archs\s*=.*', 'android.archs = arm64-v8a'),
-              (r'^#?\s*android\.ndk\s*=.*', 'android.ndk = 25b'),
-              (r'^#?\s*android\.ndk_version\s*=.*', 'android.ndk_version = 25b'),
-              (r'^#?\s*android\.accept_sdk_license\s*=.*', 'android.accept_sdk_license = True'),
-              (r'^#?\s*log_level\s*=.*', 'log_level = 2'),
+              (r"^#?\s*title\s*=.*$",
+               "title = MobileStream"),
+              (r"^#?\s*package\.name\s*=.*$",
+               "package.name = mobilestream"),
+              (r"^#?\s*package\.domain\s*=.*$",
+               "package.domain = org.imnotsneaker"),
+              (r"^#?\s*requirements\s*=.*$",
+               "requirements = python3,kivy,flask,requests,pillow"),
+              (r"^#?\s*android\.permissions\s*=.*$",
+               "android.permissions = INTERNET"),
+              (r"^#?\s*android\.archs\s*=.*$",
+               "android.archs = arm64-v8a"),
+              (r"^#?\s*android\.api\s*=.*$",
+               "android.api = 35"),
+              (r"^#?\s*android\.minapi\s*=.*$",
+               "android.minapi = 23"),
+              (r"^#?\s*android\.ndk\s*=.*$",
+               "android.ndk = 25b"),
+              (r"^#?\s*android\.accept_sdk_license\s*=.*$",
+               "android.accept_sdk_license = True"),
+              (r"^#?\s*log_level\s*=.*$",
+               "log_level = 2"),
           ]
 
-          for pattern, repl in replacements:
-              content = re.sub(pattern, repl, content, count=1, flags=re.MULTILINE)
+          for pattern, replacement in replacements:
+              updated, count = re.subn(
+                  pattern,
+                  replacement,
+                  content,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
 
-          with open('buildozer.spec', 'w') as f:
-              f.write(content)
-          "
+              # Fail early instead of silently ignoring a missing setting.
+              if count == 0:
+                  raise RuntimeError(
+                      f"Could not find buildozer.spec setting: {pattern}"
+                  )
 
-          # بدء التجميع
-          buildozer -v android debug
+              content = updated
 
-      - name: Upload APK Artifact
+          with open(path, "w", encoding="utf-8") as file:
+              file.write(content)
+          PY
+
+          echo "===== Effective buildozer.spec settings ====="
+          grep -E "^(title|package\.name|package\.domain|requirements|android\.permissions|android\.archs|android\.api|android\.minapi|android\.ndk|log_level)[[:space:]]*=" buildozer.spec
+
+          if grep -q "requirements = .*openssl.*libffi" buildozer.spec; then
+            echo "ERROR: old openssl/libffi requirements are still present"
+            exit 1
+          fi
+
+      - name: Build debug APK
+        run: |
+          set -o pipefail
+          buildozer -v android debug 2>&1 | tee buildozer.log
+
+      - name: Upload Buildozer log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildozer-log
+          path: buildozer.log
+          if-no-files-found: ignore
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: bin/*.apk
+          if-no-files-found: error
