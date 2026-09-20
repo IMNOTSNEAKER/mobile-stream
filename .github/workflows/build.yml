@@ -16,20 +16,22 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Generate buildozer.spec
+      - name: Install Dependencies
         run: |
-          pip install buildozer
+          sudo apt update
+          sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev libffi-dev
+          pip install --upgrade pip buildozer cython
+
+      - name: Build APK with Buildozer
+        run: |
           buildozer init
           sed -i 's/# title = My Application/title = MobileStream/' buildozer.spec
           sed -i 's/# package.name = myapp/package.name = mobilestream/' buildozer.spec
           sed -i 's/# package.domain = org.test/package.domain = org.imnotsneaker/' buildozer.spec
           sed -i 's/requirements = python3,kivy/requirements = python3,kivy,flask,opencv,requests,gevent/g' buildozer.spec
-
-      - name: Build with Buildozer Action
-        uses: kivy/buildozer-action@v1
-        with:
-          command: android debug
-          subfolder: .
+          sed -i 's|# android.sdk_path =|android.sdk_path = /usr/local/lib/android/sdk|g' buildozer.spec
+          sed -i 's/# android.accept_sdk_license = False/android.accept_sdk_license = True/g' buildozer.spec
+          buildozer -v android debug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
