@@ -72,6 +72,7 @@ jobs:
           fi
 
           python3 - <<'PY'
+          import os
           import re
 
           path = "buildozer.spec"
@@ -123,12 +124,30 @@ jobs:
 
               content = updated
 
+          # Use icon.png from the repository root when the user uploads it.
+          # Keep the default icon setting when no custom icon is present.
+          if os.path.isfile("icon.png"):
+              content, count = re.subn(
+                  r"^#?\s*icon\.filename\s*=.*$",
+                  "icon.filename = %(source.dir)s/icon.png",
+                  content,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+
+              if count == 0:
+                  content = content.replace(
+                      "[app]",
+                      "[app]\nicon.filename = %(source.dir)s/icon.png",
+                      1,
+                  )
+
           with open(path, "w", encoding="utf-8") as file:
               file.write(content)
           PY
 
           echo "===== Effective buildozer.spec settings ====="
-          grep -E "^(title|package\.name|package\.domain|requirements|android\.permissions|android\.archs|android\.api|android\.minapi|android\.ndk|log_level)[[:space:]]*=" buildozer.spec
+          grep -E "^(title|package\.name|package\.domain|requirements|icon\.filename|android\.permissions|android\.archs|android\.api|android\.minapi|android\.ndk|log_level)[[:space:]]*=" buildozer.spec || true
 
           if grep -q "requirements = .*openssl.*libffi" buildozer.spec; then
             echo "ERROR: old openssl/libffi requirements are still present"
