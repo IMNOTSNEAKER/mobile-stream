@@ -24,23 +24,29 @@ jobs:
           pip install buildozer cython
 
       - name: Build APK with Buildozer
+        env:
+          # تفريغ متغيرات بيئة النظام لمنع التقاط NDK 27 الافتراضي
+          ANDROID_NDK_HOME: ""
+          ANDROID_NDK_ROOT: ""
+          ANDROID_NDK: ""
+          ANDROID_NDK_LATEST_HOME: ""
         run: |
           buildozer init
           
-          # 1. إعداد العنوان واسم الحزمة
+          # 1. إعداد بيانات التطبيق
           sed -i 's/^title =.*/title = MobileStream/' buildozer.spec
           sed -i 's/^package.name =.*/package.name = mobilestream/' buildozer.spec
           sed -i 's/^package.domain =.*/package.domain = org.imnotsneaker/' buildozer.spec
           
-          # 2. تحديد المكتبات والمعمارية
+          # 2. ضبط المتطلبات والمعمارية
           sed -i 's/^requirements =.*/requirements = python3,kivy,flask,numpy,opencv,requests/' buildozer.spec
           sed -i 's/^android.archs =.*/android.archs = arm64-v8a/' buildozer.spec
           
-          # 3. إجبار Buildozer على استخدام NDK 25b المتوافق مع OpenCV
+          # 3. إجبار Buildozer على تنزيل واستخدام NDK 25b
           sed -i 's/# android.ndk = 25b/android.ndk = 25b/' buildozer.spec
           sed -i 's/# android.accept_sdk_license = False/android.accept_sdk_license = True/' buildozer.spec
           
-          # 4. بدء التجميع
+          # 4. تشغيل عملية التجميع
           buildozer -v android debug
 
       - name: Upload APK Artifact
