@@ -95,9 +95,11 @@ jobs:
               (r"^#?\s*android\.api\s*=.*$",
                "android.api = 35"),
               (r"^#?\s*android\.minapi\s*=.*$",
-               "android.minapi = 23"),
+               "android.minapi = 24"),
               (r"^#?\s*android\.ndk\s*=.*$",
                "android.ndk = 25b"),
+              (r"^#?\s*android\.ndk_api\s*=.*$",
+               "android.ndk_api = 24"),
               (r"^#?\s*android\.accept_sdk_license\s*=.*$",
                "android.accept_sdk_license = True"),
               (r"^#?\s*log_level\s*=.*$",
@@ -141,6 +143,9 @@ jobs:
           unset ANDROID_NDK_HOME
           unset ANDROID_NDK_ROOT
           unset ANDROID_NDK_LATEST_HOME
+
+          # Remove partially built recipes from previous attempts.
+          rm -rf .buildozer
 
           set -o pipefail
           buildozer -v android debug 2>&1 | tee buildozer.log
