@@ -19,9 +19,14 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt update
-          sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev libffi-dev cmake ninja-build lld clang
+          sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev \
+            libssl-dev libffi-dev cmake ninja-build lld clang ccache gfortran \
+            libgl1-mesa-dev libgles2-mesa-dev
           pip install --upgrade pip
           pip install buildozer cython
+          # تثبيت أحدث نسخة من python-for-android لإصلاح ووصفات بناء opencv
+          pip install git+https://github.com/kivy/python-for-android.git@master
 
       - name: Configure buildozer.spec and Build
         env:
@@ -32,7 +37,7 @@ jobs:
         run: |
           buildozer init
           
-          # استبدال الإعدادات لمرة واحدة فقط (count=1) لمنع التكرار داخل أقسام buildozer.spec
+          # ضبط إعدادات buildozer.spec بشكل دقيق
           python3 -c "
           import re
 
