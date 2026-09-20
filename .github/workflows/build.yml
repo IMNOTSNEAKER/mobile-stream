@@ -25,8 +25,6 @@ jobs:
             libgl1-mesa-dev libgles2-mesa-dev
           pip install --upgrade pip
           pip install buildozer cython
-          # تثبيت أحدث نسخة من python-for-android لإصلاح ووصفات بناء opencv
-          pip install git+https://github.com/kivy/python-for-android.git@master
 
       - name: Configure buildozer.spec and Build
         env:
@@ -37,7 +35,7 @@ jobs:
         run: |
           buildozer init
           
-          # ضبط إعدادات buildozer.spec بشكل دقيق
+          # استبدال opencv بـ pillow داخل buildozer.spec لتجنب أخطاء تجميع C++
           python3 -c "
           import re
 
@@ -48,7 +46,7 @@ jobs:
               (r'^#?\s*title\s*=.*', 'title = MobileStream'),
               (r'^#?\s*package\.name\s*=.*', 'package.name = mobilestream'),
               (r'^#?\s*package\.domain\s*=.*', 'package.domain = org.imnotsneaker'),
-              (r'^#?\s*requirements\s*=.*', 'requirements = python3,kivy,flask,numpy,opencv,requests'),
+              (r'^#?\s*requirements\s*=.*', 'requirements = python3,kivy,flask,pillow,requests'),
               (r'^#?\s*android\.archs\s*=.*', 'android.archs = arm64-v8a'),
               (r'^#?\s*android\.ndk\s*=.*', 'android.ndk = 25b'),
               (r'^#?\s*android\.ndk_version\s*=.*', 'android.ndk_version = 25b'),
