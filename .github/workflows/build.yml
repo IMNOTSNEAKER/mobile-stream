@@ -32,23 +32,27 @@ jobs:
         run: |
           buildozer init
           
-          # استبدال الإعدادات باستخدام Regex لتجنب تكرار الخيارات داخل buildozer.spec
+          # استبدال الإعدادات لمرة واحدة فقط (count=1) لمنع التكرار داخل أقسام buildozer.spec
           python3 -c "
           import re
 
           with open('buildozer.spec', 'r') as f:
               content = f.read()
 
-          # استبدال القيم الحالية بدلاً من إضافتها من جديد
-          content = re.sub(r'^#?\s*title\s*=.*', 'title = MobileStream', content, flags=re.MULTILINE)
-          content = re.sub(r'^#?\s*package\.name\s*=.*', 'package.name = mobilestream', content, flags=re.MULTILINE)
-          content = re.sub(r'^#?\s*package\.domain\s*=.*', 'package.domain = org.imnotsneaker', content, flags=re.MULTILINE)
-          content = re.sub(r'^#?\s*requirements\s*=.*', 'requirements = python3,kivy,flask,numpy,opencv,requests', content, flags=re.MULTILINE)
-          content = re.sub(r'^#?\s*android\.archs\s*=.*', 'android.archs = arm64-v8a', content, flags=re.MULTILINE)
-          content = re.sub(r'^#?\s*android\.ndk\s*=.*', 'android.ndk = 25b', content, flags=re.MULTILINE)
-          content = re.sub(r'^#?\s*android\.ndk_version\s*=.*', 'android.ndk_version = 25b', content, flags=re.MULTILINE)
-          content = re.sub(r'^#?\s*android\.accept_sdk_license\s*=.*', 'android.accept_sdk_license = True', content, flags=re.MULTILINE)
-          content = re.sub(r'^#?\s*log_level\s*=.*', 'log_level = 2', content, flags=re.MULTILINE)
+          replacements = [
+              (r'^#?\s*title\s*=.*', 'title = MobileStream'),
+              (r'^#?\s*package\.name\s*=.*', 'package.name = mobilestream'),
+              (r'^#?\s*package\.domain\s*=.*', 'package.domain = org.imnotsneaker'),
+              (r'^#?\s*requirements\s*=.*', 'requirements = python3,kivy,flask,numpy,opencv,requests'),
+              (r'^#?\s*android\.archs\s*=.*', 'android.archs = arm64-v8a'),
+              (r'^#?\s*android\.ndk\s*=.*', 'android.ndk = 25b'),
+              (r'^#?\s*android\.ndk_version\s*=.*', 'android.ndk_version = 25b'),
+              (r'^#?\s*android\.accept_sdk_license\s*=.*', 'android.accept_sdk_license = True'),
+              (r'^#?\s*log_level\s*=.*', 'log_level = 2'),
+          ]
+
+          for pattern, repl in replacements:
+              content = re.sub(pattern, repl, content, count=1, flags=re.MULTILINE)
 
           with open('buildozer.spec', 'w') as f:
               f.write(content)
