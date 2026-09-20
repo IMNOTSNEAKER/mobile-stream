@@ -18,14 +18,13 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
-          sudo apt-update -y
+          sudo apt update -y
           sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config \
             zlib1g-dev libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev \
             libssl-dev libffi-dev cmake ninja-build lld clang ccache gfortran \
             libgl1-mesa-dev libgles2-mesa-dev libjpeg-dev libpng-dev
           
           pip install --upgrade pip
-          # تقييد إصدار Cython وتثبيت virtualenv وهو أمر بالغ الأهمية لنجاح البناء
           pip install "Cython==0.29.36" virtualenv buildozer
 
       - name: Configure buildozer.spec and Build
@@ -47,7 +46,6 @@ jobs:
               (r'^#?\s*title\s*=.*', 'title = MobileStream'),
               (r'^#?\s*package\.name\s*=.*', 'package.name = mobilestream'),
               (r'^#?\s*package\.domain\s*=.*', 'package.domain = org.imnotsneaker'),
-              # إضافة libffi لدعم openssl بشكل صحيح
               (r'^#?\s*requirements\s*=.*', 'requirements = python3,kivy,flask,requests,openssl,libffi,pillow'),
               (r'^#?\s*android\.permissions\s*=.*', 'android.permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE'),
               (r'^#?\s*android\.archs\s*=.*', 'android.archs = arm64-v8a'),
