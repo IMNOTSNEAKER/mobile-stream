@@ -19,22 +19,28 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt update
-          sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev libffi-dev cmake ninja-build
-          pip install --upgrade pip buildozer cython
+          sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev libffi-dev cmake ninja-build lld clang
+          pip install --upgrade pip
+          pip install buildozer cython
 
       - name: Build APK with Buildozer
         run: |
           buildozer init
-          sed -i 's/# title = My Application/title = MobileStream/' buildozer.spec
-          sed -i 's/# package.name = myapp/package.name = mobilestream/' buildozer.spec
-          sed -i 's/# package.domain = org.test/package.domain = org.imnotsneaker/' buildozer.spec
-          # إضافة numpy كمتطلب أساسي لبناء opencv
-          sed -i 's/requirements = python3,kivy/requirements = python3,kivy,flask,numpy,opencv,requests/g' buildozer.spec
-          sed -i 's/android.archs = arm64-v8a, armeabi-v7a/android.archs = arm64-v8a/g' buildozer.spec
-          # تحديد إصدار NDK 25b المستقر لتجميع OpenCV
-          sed -i 's/# android.ndk = 25b/android.ndk = 25b/g' buildozer.spec
-          sed -i 's|# android.sdk_path =|android.sdk_path = /usr/local/lib/android/sdk|g' buildozer.spec
-          sed -i 's/# android.accept_sdk_license = False/android.accept_sdk_license = True/g' buildozer.spec
+          
+          # 1. إعداد العنوان واسم الحزمة
+          sed -i 's/^title =.*/title = MobileStream/' buildozer.spec
+          sed -i 's/^package.name =.*/package.name = mobilestream/' buildozer.spec
+          sed -i 's/^package.domain =.*/package.domain = org.imnotsneaker/' buildozer.spec
+          
+          # 2. تحديد المكتبات والمعمارية
+          sed -i 's/^requirements =.*/requirements = python3,kivy,flask,numpy,opencv,requests/' buildozer.spec
+          sed -i 's/^android.archs =.*/android.archs = arm64-v8a/' buildozer.spec
+          
+          # 3. إجبار Buildozer على استخدام NDK 25b المتوافق مع OpenCV
+          sed -i 's/# android.ndk = 25b/android.ndk = 25b/' buildozer.spec
+          sed -i 's/# android.accept_sdk_license = False/android.accept_sdk_license = True/' buildozer.spec
+          
+          # 4. بدء التجميع
           buildozer -v android debug
 
       - name: Upload APK Artifact
