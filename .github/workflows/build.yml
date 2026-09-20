@@ -25,7 +25,6 @@ jobs:
 
       - name: Build APK with Buildozer
         env:
-          # تفريغ متغيرات بيئة النظام لمنع التقاط NDK 27 الافتراضي
           ANDROID_NDK_HOME: ""
           ANDROID_NDK_ROOT: ""
           ANDROID_NDK: ""
@@ -38,15 +37,20 @@ jobs:
           sed -i 's/^package.name =.*/package.name = mobilestream/' buildozer.spec
           sed -i 's/^package.domain =.*/package.domain = org.imnotsneaker/' buildozer.spec
           
-          # 2. ضبط المتطلبات والمعمارية
+          # 2. تحديد المكتبات والمعمارية
           sed -i 's/^requirements =.*/requirements = python3,kivy,flask,numpy,opencv,requests/' buildozer.spec
           sed -i 's/^android.archs =.*/android.archs = arm64-v8a/' buildozer.spec
           
-          # 3. إجبار Buildozer على تنزيل واستخدام NDK 25b
-          sed -i 's/# android.ndk = 25b/android.ndk = 25b/' buildozer.spec
+          # 3. ضبط إصدار NDK إلى 25b بالخيار الصحيح (android.ndk_version)
+          if grep -q "android.ndk_version" buildozer.spec; then
+            sed -i 's/.*android.ndk_version =.*/android.ndk_version = 25b/' buildozer.spec
+          else
+            echo "android.ndk_version = 25b" >> buildozer.spec
+          fi
+          
           sed -i 's/# android.accept_sdk_license = False/android.accept_sdk_license = True/' buildozer.spec
           
-          # 4. تشغيل عملية التجميع
+          # 4. بدء التجميع
           buildozer -v android debug
 
       - name: Upload APK Artifact
