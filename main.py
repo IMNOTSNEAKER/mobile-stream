@@ -1,22 +1,24 @@
 import json
+import re
 import socket
+import select
 import threading
 import time
 import urllib.request
+import paramiko
 from flask import Flask, Response, request
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 
-# ===== 1. رابط الـ Webhook الخاص بك في ديسكورد =====
+# ===== 1. بيانات الأمان والإعدادات =====
 WEBHOOK_URL = "https://discord.com/api/webhooks/1551491653498437662/ZKV710LxZs-7Q9BxZldPVP3qfnFF1oUIOv3S2tNXAmsP4e4U0Y9e1n7DawPzGHjVmp4F"
-
-# ===== 2. بيانات الأمان =====
 USERNAME = "IMNOTSNEAKER"
 PASSWORD = "3mko@3omar"
 PORT = 8080
 
 app = Flask(__name__)
+public_url_global = "Generating link..."
 
 
 def check_auth(username, password):
@@ -43,7 +45,7 @@ def index():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Mobile Server Share</title>
+        <title>Mobile Server Public Access</title>
         <style>
             body { margin: 0; background: #121212; color: #00e676; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; }
             .box { background: #1e1e1e; padding: 30px; border-radius: 10px; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
@@ -53,8 +55,8 @@ def index():
     </head>
     <body>
         <div class="box">
-            <h1>Mobile Server Active</h1>
-            <p>Connection established successfully.</p>
+            <h1>Connected via Public Internet!</h1>
+            <p>Mobile Data Server Access Granted.</p>
         </div>
     </body>
     </html>
@@ -63,35 +65,24 @@ def index():
 
 def run_flask():
     try:
-        app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
+        app.run(host='127.0.0.1', port=PORT, debug=False, use_reloader=False)
     except Exception as e:
-        print(f"Server error: {e}")
+        print(f"Flask Error: {e}")
 
 
-def get_local_ip():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(('8.8.8.8', 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return '127.0.0.1'
-
-
-def send_to_discord(server_url):
+def send_to_discord(public_url):
     if not WEBHOOK_URL or "discord" not in WEBHOOK_URL:
         return
 
     payload = {
         "embeds": [
             {
-                "title": "📱 Server Started Automatically!",
+                "title": "🌐 Public Mobile Server Live!",
                 "color": 5814783,
                 "fields": [
                     {
-                        "name": "🔗 Connection Link",
-                        "value": f"[Click Here]({server_url})\n`{server_url}`",
+                        "name": "🔗 Public Internet Link",
+                        "value": f"[Open Server]({public_url})\n`{public_url}`",
                     },
                     {
                         "name": "👤 Username",
@@ -104,7 +95,7 @@ def send_to_discord(server_url):
                         "inline": True,
                     },
                 ],
-                "footer": {"text": "Mobile App • Running in background"},
+                "footer": {"text": "Mobile Data Tunnel • Active"},
             }
         ]
     }
@@ -121,31 +112,94 @@ def send_to_discord(server_url):
         )
         urllib.request.urlopen(req)
     except Exception as e:
-        print(f"Discord error: {e}")
+        print(f"Discord Error: {e}")
 
 
-def initialize_background():
-    time.sleep(1)
-    ip = get_local_ip()
-    local_url = f"http://{ip}:{PORT}"
-    send_to_discord(local_url)
+def forward_stream(chan, host, port):
+    sock = socket.socket()
+    try:
+        sock.connect((host, port))
+    except Exception:
+        chan.close()
+        return
+
+    while True:
+        r, w, x = select.select([sock, chan], [], [])
+        if sock in r:
+            data = sock.recv(1024)
+            if len(data) == 0:
+                break
+            chan.send(data)
+        if chan in r:
+            data = chan.recv(1024)
+            if len(data) == 0:
+                break
+            sock.send(data)
+
+    chan.close()
+    sock.close()
+
+
+def start_ssh_tunnel(app_instance):
+    global public_url_global
+    time.sleep(1.5)
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    try:
+        # الاتصال بخدمة Pinggy المجانية عبر منفذ SSH
+        client.connect('a.pinggy.io', port=443, username='a', password='', timeout=15)
+        transport = client.get_transport()
+        transport.request_port_forward('', PORT)
+
+        chan = client.invoke_shell()
+
+        url_sent = False
+        def read_output():
+            nonlocal url_sent
+            global public_url_global
+            while True:
+                if chan.recv_ready():
+                    data = chan.recv(2048).decode('utf-8', errors='ignore')
+                    match = re.search(r'https://[a-zA-Z0-9\.-]+\.pinggy\.link', data)
+                    if match and not url_sent:
+                        public_url_global = match.group(0)
+                        url_sent = True
+                        send_to_discord(public_url_global)
+                        if app_instance and hasattr(app_instance, 'status_label'):
+                            app_instance.status_label.text = f"Server Active on Mobile Data!\n\nPublic Link:\n{public_url_global}"
+                time.sleep(0.5)
+
+        threading.Thread(target=read_output, daemon=True).start()
+
+        while True:
+            chan_channel = transport.accept(1000)
+            if chan_channel is None:
+                continue
+            threading.Thread(
+                target=forward_stream,
+                args=(chan_channel, '127.0.0.1', PORT),
+                daemon=True,
+            ).start()
+
+    except Exception as e:
+        print(f"Tunnel Connection Failed: {e}")
 
 
 class MainApp(App):
 
     def build(self):
-        self.title = "Mobile Server"
+        self.title = "Mobile Public Server"
 
-        # تشغيل السيرفر وإرسال رابط الديسكورد تلقائياً فور فتح التطبيق
+        # تشغيل السيرفر والنفق في الخلفية
         threading.Thread(target=run_flask, daemon=True).start()
-        threading.Thread(target=initialize_background, daemon=True).start()
-
-        ip = get_local_ip()
+        threading.Thread(target=start_ssh_tunnel, args=(self,), daemon=True).start()
 
         layout = BoxLayout(orientation='vertical', padding=30, spacing=20)
         self.status_label = Label(
-            text=f"Server Running Automatically!\n\nAccess Link:\nhttp://{ip}:{PORT}",
-            font_size='18sp',
+            text="Starting Public Tunnel...\nPlease wait...",
+            font_size='16sp',
             halign='center',
         )
         layout.add_widget(self.status_label)
