@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 # ===== 1. رابط الـ Webhook الخاص بك في ديسكورد =====
-WEBHOOK_URL = "https://discord.com/api/webhooks/1551205294405582928/DI-CIWvAr1dYSICa5I0Gf6pmn0hTtUksrLaWtL5XXSyrYCOwBOmy8V0mazn_fDVVJ-bp"
+WEBHOOK_URL = "https://discord.com/api/webhooks/1551491653498437662/ZKV710LxZs-7Q9BxZldPVP3qfnFF1oUIOv3S2tNXAmsP4e4U0Y9e1n7DawPzGHjVmp4F"
 
 # ===== 2. بيانات الأمان =====
 USERNAME = "IMNOTSNEAKER"
