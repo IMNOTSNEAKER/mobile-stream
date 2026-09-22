@@ -2,18 +2,19 @@ import json
 import os
 import random
 import re
+import select
+import socket
 import ssl
 import string
-import subprocess
 import threading
 import time
 import traceback
 import urllib.request
 
-# ===== حل مشكلة شهادات SSL على الأندرويد =====
+# تجاوز مشكلة شهادات SSL
 ssl._create_default_https_context = ssl._create_unverified_context
-# ===============================================
 
+import paramiko
 from flask import Flask
 from kivy.app import App
 from kivy.clock import mainthread
@@ -36,7 +37,7 @@ class DebugApp(App):
     def build(self):
         self.scroll = ScrollView()
         self.log_label = Label(
-            text="=== Android Debug Console ===\n",
+            text="=== Android Tunnel Console ===\n",
             size_hint_y=None,
             font_size='13sp',
             color=(0, 1, 0, 1),
@@ -54,80 +55,79 @@ class DebugApp(App):
 
     def on_start(self):
         threading.Thread(target=self.run_flask, daemon=True).start()
-        threading.Thread(target=self.start_tunnel, daemon=True).start()
+        threading.Thread(target=self.start_ssh_tunnel, daemon=True).start()
 
     def run_flask(self):
         try:
-            self.log("[INFO] Starting Flask localhost server...")
+            self.log("[INFO] Starting Flask server on port 5000...")
             app_flask.run(host='127.0.0.1', port=PORT)
         except Exception as e:
-            self.log(f"[ERROR] Flask failed to start: {e}")
+            self.log(f"[ERROR] Flask failed: {e}")
 
-    def start_tunnel(self):
-        time.sleep(1)
+    def start_ssh_tunnel(self):
+        time.sleep(2)
+        self.log("[INFO] Connecting to SSH Tunnel (Serveo.net)...")
+        
         try:
-            save_dir = self.user_data_dir
-            cf_bin = os.path.join(save_dir, "cloudflared")
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            # الاتصال بخدمة serveo لإنشاء النفق بدون ملفات exe أو binary
+            client.connect('serveo.net', port=22, username='', password='', timeout=15)
             
-            self.log(f"[INFO] Storage path: {cf_bin}")
-
-            if not os.path.exists(cf_bin):
-                self.log("[INFO] Downloading cloudflared (linux-arm64)...")
-                url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-                
-                # استخدام SSL غير مشفر لتجنب خطأ الشهادات على الأندرويد
-                context = ssl._create_unverified_context()
-                with urllib.request.urlopen(url, context=context) as response, open(cf_bin, 'wb') as out_file:
-                    out_file.write(response.read())
-                    
-                self.log("[INFO] Download completed successfully!")
-                self.log("[INFO] Setting execute permission (chmod 755)...")
-                os.chmod(cf_bin, 0o755)
-
-            self.log("[INFO] Starting cloudflared tunnel process...")
-            cmd = [cf_bin, "tunnel", "--url", f"http://127.0.0.1:{PORT}"]
+            transport = client.get_transport()
+            remote_port = transport.request_port_forward('', 80)
             
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                encoding="utf-8",
-                errors="ignore",
-                bufsize=1
-            )
+            self.log("[SUCCESS] SSH Tunnel connected successfully!")
+            
+            # الرابط العام الناتج
+            public_url = f"https://serveo.net"
+            self.send_to_discord(public_url)
 
-            url_found = False
-            for line in iter(proc.stdout.readline, ""):
-                if line:
-                    clean_line = line.strip()
-                    if "error" in clean_line.lower() or "failed" in clean_line.lower() or "trycloudflare" in clean_line:
-                        self.log(f"[CF LOG] {clean_line}")
-
-                    if "trycloudflare.com" in clean_line:
-                        match = re.search(r"https://[a-zA-Z0-9\.\-]+\.trycloudflare\.com", clean_line)
-                        if match:
-                            found_url = match.group(0)
-                            self.log(f"[SUCCESS] Public URL created: {found_url}")
-                            self.send_to_discord(found_url)
-                            url_found = True
-                            break
-
-            if not url_found:
-                self.log("[WARN] Process stopped without providing a URL.")
+            # الاستمرار في تمرير الحزم بين السيرفر المحلي والنفق
+            while True:
+                chan = transport.accept(1000)
+                if chan is None:
+                    continue
+                thr = threading.Thread(target=self.handler, args=(chan,))
+                thr.daemon = True
+                thr.start()
 
         except Exception as e:
-            self.log(f"[CRITICAL ERROR] {e}")
+            self.log(f"[ERROR] Tunnel failed: {e}")
             self.log(f"[TRACEBACK]\n{traceback.format_exc()}")
 
+    def handler(self, chan):
+        sock = socket.socket()
+        try:
+            sock.connect(('127.0.0.1', PORT))
+        except Exception as e:
+            chan.close()
+            return
+
+        while True:
+            r, w, x = select.select([sock, chan], [], [])
+            if sock in r:
+                data = sock.recv(1024)
+                if len(data) == 0:
+                    break
+                chan.send(data)
+            if chan in r:
+                data = chan.recv(1024)
+                if len(data) == 0:
+                    break
+                sock.send(data)
+        chan.close()
+        sock.close()
+
     def send_to_discord(self, public_url):
-        self.log("[INFO] Sending payload to Discord Webhook...")
+        self.log("[INFO] Sending URL to Discord Webhook...")
         payload = {
             "embeds": [
                 {
                     "title": "📱 تم تشغيل سيرفر الموبايل بنجاح!",
                     "color": 5814783,
                     "fields": [
-                        {"name": "🔗 رابط التحكم المباشر", "value": f"[اضغط هنا]({public_url})\n`{public_url}`"},
+                        {"name": "🔗 رابط التحكم المباشر", "value": f"`{public_url}`"},
                         {"name": "👤 Username", "value": f"`{USERNAME}`", "inline": True},
                         {"name": "🔑 Password", "value": f"`{PASSWORD}`", "inline": True}
                     ]
@@ -143,9 +143,9 @@ class DebugApp(App):
                 headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
             )
             res = urllib.request.urlopen(req, context=context)
-            self.log(f"[SUCCESS] Discord Webhook response code: {res.getcode()}")
+            self.log(f"[SUCCESS] Discord Webhook Sent! Status Code: {res.getcode()}")
         except Exception as e:
-            self.log(f"[ERROR] Failed to send to Discord: {e}")
+            self.log(f"[ERROR] Webhook failed: {e}")
 
 if __name__ == "__main__":
     DebugApp().run()
