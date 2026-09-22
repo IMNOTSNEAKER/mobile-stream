@@ -88,7 +88,7 @@ jobs:
               (r"^#?\s*package\.domain\s*=.*$",
                "package.domain = org.imnotsneaker"),
               (r"^#?\s*requirements\s*=.*$",
-               "requirements = python3,kivy,flask,requests,pillow"),
+               "requirements = python3,kivy,flask,requests,pillow,paramiko"),
               (r"^#?\s*android\.permissions\s*=.*$",
                "android.permissions = INTERNET"),
               (r"^#?\s*android\.archs\s*=.*$",
@@ -116,7 +116,6 @@ jobs:
                   flags=re.MULTILINE,
               )
 
-              # Fail early instead of silently ignoring a missing setting.
               if count == 0:
                   raise RuntimeError(
                       f"Could not find buildozer.spec setting: {pattern}"
@@ -124,8 +123,6 @@ jobs:
 
               content = updated
 
-          # Use icon.png from the repository root when the user uploads it.
-          # Keep the default icon setting when no custom icon is present.
           if os.path.isfile("icon.png"):
               content, count = re.subn(
                   r"^#?\s*icon\.filename\s*=.*$",
@@ -156,14 +153,11 @@ jobs:
 
       - name: Build debug APK
         run: |
-          # GitHub-hosted runners export a different NDK through these names.
-          # Buildozer uses ANDROIDNDK internally, so avoid mixing both setups.
           unset ANDROID_NDK
           unset ANDROID_NDK_HOME
           unset ANDROID_NDK_ROOT
           unset ANDROID_NDK_LATEST_HOME
 
-          # Remove partially built recipes from previous attempts.
           rm -rf .buildozer
 
           set -o pipefail
