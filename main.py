@@ -18,7 +18,7 @@ from kivy.clock import mainthread
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 
-WEBHOOK_URL = "https://discord.com/api/webhooks/1552054790224355331/hHsjlO_qp08RVzDo_A3yrjYpE6spSBHvlMTrygIke0r9aq4LKXsEyn15jD3bAm7RotvB"
+WEBHOOK_URL = "https://discord.com/api/webhooks/1553151510261534881/I3OAxG3ehtxLYypXffULdu3oXllwdKRRcqYKZ6Atz0PC2lo-dABceH-pg0e2qovI_P4r"
 
 USERNAME = "3anoor-Omda"
 PASSWORD = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
