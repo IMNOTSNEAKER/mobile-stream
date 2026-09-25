@@ -2,19 +2,16 @@ import json
 import os
 import random
 import re
-import select
-import socket
 import ssl
 import string
+import subprocess
 import threading
 import time
 import traceback
 import urllib.request
 
-# تجاوز مشكلة شهادات SSL
 ssl._create_default_https_context = ssl._create_unverified_context
 
-import paramiko
 from flask import Flask
 from kivy.app import App
 from kivy.clock import mainthread
@@ -37,7 +34,7 @@ class DebugApp(App):
     def build(self):
         self.scroll = ScrollView()
         self.log_label = Label(
-            text="=== Android Tunnel Console ===\n",
+            text="=== Cloudflare Tunnel Console ===\n",
             size_hint_y=None,
             font_size='13sp',
             color=(0, 1, 0, 1),
@@ -55,82 +52,92 @@ class DebugApp(App):
 
     def on_start(self):
         threading.Thread(target=self.run_flask, daemon=True).start()
-        threading.Thread(target=self.start_ssh_tunnel, daemon=True).start()
+        threading.Thread(target=self.start_tunnel, daemon=True).start()
 
     def run_flask(self):
         try:
-            self.log("[INFO] Starting Flask server on port 5000...")
+            self.log("[INFO] Starting Flask server...")
             app_flask.run(host='127.0.0.1', port=PORT)
         except Exception as e:
             self.log(f"[ERROR] Flask failed: {e}")
 
-    def start_ssh_tunnel(self):
-        time.sleep(2)
-        self.log("[INFO] Connecting to SSH Tunnel (Serveo.net)...")
-        
+    def get_cloudflared_path(self):
+        # البحث عن المكتبة المدمجة في مجلد التطبيق الخاص بالأندرويد
         try:
-            client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            # الاتصال بخدمة serveo لإنشاء النفق بدون ملفات exe أو binary
-            client.connect('serveo.net', port=22, username='', password='', timeout=15)
-            
-            transport = client.get_transport()
-            remote_port = transport.request_port_forward('', 80)
-            
-            self.log("[SUCCESS] SSH Tunnel connected successfully!")
-            
-            # الرابط العام الناتج
-            public_url = f"https://serveo.net"
-            self.send_to_discord(public_url)
+            from jnius import autoclass
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            lib_dir = PythonActivity.mActivity.getApplicationInfo().nativeLibraryDir
+            cf_bin = os.path.join(lib_dir, "libcloudflared.so")
+            if os.path.exists(cf_bin):
+                return cf_bin
+        except Exception as e:
+            self.log(f"[WARN] PyJnius path lookup: {e}")
 
-            # الاستمرار في تمرير الحزم بين السيرفر المحلي والنفق
-            while True:
-                chan = transport.accept(1000)
-                if chan is None:
-                    continue
-                thr = threading.Thread(target=self.handler, args=(chan,))
-                thr.daemon = True
-                thr.start()
+        package_name = "org.imnotsneaker.mobilestream"
+        possible_paths = [
+            f"/data/app/{package_name}/lib/arm64/libcloudflared.so",
+            f"/data/data/{package_name}/lib/libcloudflared.so"
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                return path
+
+        return None
+
+    def start_tunnel(self):
+        time.sleep(2)
+        try:
+            cf_bin = self.get_cloudflared_path()
+            if not cf_bin:
+                self.log("[CRITICAL ERROR] Native Cloudflare library not found!")
+                return
+
+            self.log(f"[INFO] Cloudflare binary located: {cf_bin}")
+            self.log("[INFO] Starting Cloudflare Tunnel...")
+
+            cmd = [cf_bin, "tunnel", "--url", f"http://127.0.0.1:{PORT}"]
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                encoding="utf-8",
+                errors="ignore",
+                bufsize=1
+            )
+
+            url_found = False
+            for line in iter(proc.stdout.readline, ""):
+                if line:
+                    clean_line = line.strip()
+                    if "trycloudflare.com" in clean_line:
+                        match = re.search(r"https://[a-zA-Z0-9\.\-]+\.trycloudflare\.com", clean_line)
+                        if match:
+                            found_url = match.group(0)
+                            self.log(f"[SUCCESS] Public URL Created: {found_url}")
+                            self.send_to_discord(found_url)
+                            url_found = True
+                            break
+
+            if not url_found:
+                self.log("[WARN] Process ended without capturing URL.")
 
         except Exception as e:
-            self.log(f"[ERROR] Tunnel failed: {e}")
+            self.log(f"[CRITICAL ERROR] {e}")
             self.log(f"[TRACEBACK]\n{traceback.format_exc()}")
 
-    def handler(self, chan):
-        sock = socket.socket()
-        try:
-            sock.connect(('127.0.0.1', PORT))
-        except Exception as e:
-            chan.close()
-            return
-
-        while True:
-            r, w, x = select.select([sock, chan], [], [])
-            if sock in r:
-                data = sock.recv(1024)
-                if len(data) == 0:
-                    break
-                chan.send(data)
-            if chan in r:
-                data = chan.recv(1024)
-                if len(data) == 0:
-                    break
-                sock.send(data)
-        chan.close()
-        sock.close()
-
     def send_to_discord(self, public_url):
-        self.log("[INFO] Sending URL to Discord Webhook...")
+        self.log("[INFO] Sending Cloudflare URL to Discord...")
         payload = {
             "embeds": [
                 {
                     "title": "📱 تم تشغيل سيرفر الموبايل بنجاح!",
                     "color": 5814783,
                     "fields": [
-                        {"name": "🔗 رابط التحكم المباشر", "value": f"`{public_url}`"},
+                        {"name": "🔗 رابط التحكم المباشر (Cloudflare)", "value": f"[اضغط هنا]({public_url})\n`{public_url}`"},
                         {"name": "👤 Username", "value": f"`{USERNAME}`", "inline": True},
                         {"name": "🔑 Password", "value": f"`{PASSWORD}`", "inline": True}
-                    ]
+                    ],
+                    "footer": {"text": "Android Mobile Server • trycloudflare.com"}
                 }
             ]
         }
@@ -143,9 +150,9 @@ class DebugApp(App):
                 headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
             )
             res = urllib.request.urlopen(req, context=context)
-            self.log(f"[SUCCESS] Discord Webhook Sent! Status Code: {res.getcode()}")
+            self.log(f"[SUCCESS] Discord Webhook Sent! Code: {res.getcode()}")
         except Exception as e:
-            self.log(f"[ERROR] Webhook failed: {e}")
+            self.log(f"[ERROR] Discord Send Failed: {e}")
 
 if __name__ == "__main__":
     DebugApp().run()
