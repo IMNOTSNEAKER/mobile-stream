@@ -41,7 +41,6 @@ class DebugApp(App):
             halign='left',
             valign='top'
         )
-        # ضبط إلتفاف النص تلقائياً على عرض الشاشة لمنع انقصاص الكلام
         self.log_label.bind(width=lambda instance, value: setattr(instance, 'text_size', (value - 20, None)))
         self.log_label.bind(texture_size=lambda instance, value: setattr(instance, 'size', value))
         self.scroll.add_widget(self.log_label)
@@ -103,21 +102,23 @@ class DebugApp(App):
                 except Exception:
                     pass
 
+            # إضافة بروتوكول http2 و ip4 لمنع التعليق على شبكات الموبايل داتا
             cmd = [
                 cf_bin, "tunnel",
                 "--no-autoupdate",
+                "--protocol", "http2",
+                "--edge-ip-version", "4",
                 "--url", f"http://127.0.0.1:{PORT}",
                 "--logfile", log_file
             ]
 
-            self.log("[INFO] Requesting tunnel from Cloudflare...")
+            self.log("[INFO] Connecting tunnel via HTTP/2...")
             subprocess.Popen(cmd)
 
             url_found = False
             start_time = time.time()
 
-            # زيادة مهلة فحص السجلات إلى 60 ثانية حتى يكتمل الاتصال
-            while time.time() - start_time < 60:
+            while time.time() - start_time < 90:
                 if os.path.exists(log_file):
                     with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
@@ -137,8 +138,7 @@ class DebugApp(App):
                 if os.path.exists(log_file):
                     with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
                         lines = f.readlines()
-                        last_lines = "".join(lines[-10:])
-                        self.log(f"[LOG TAIL]:\n{last_lines}")
+                        self.log(f"[LOG TAIL]:\n{''.join(lines[-15:])}")
 
         except Exception as e:
             self.log(f"[ERROR] {e}")
