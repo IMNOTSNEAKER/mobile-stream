@@ -39,22 +39,50 @@ jobs:
           python -m pip install "Cython==0.29.36" virtualenv buildozer
 
       - name: Configure buildozer.spec
+        shell: bash
         run: |
           if [ ! -f buildozer.spec ]; then
             buildozer init
           fi
-          sed -i 's/^title =.*/title = MobileStream/' buildozer.spec
-          sed -i 's/^package.name =.*/package.name = mobilestream/' buildozer.spec
-          sed -i 's/^package.domain =.*/package.domain = org.imnotsneaker/' buildozer.spec
-          sed -i 's/^requirements =.*/requirements = python3,kivy,flask,requests,pillow/' buildozer.spec
-          sed -i 's/^android.permissions =.*/android.permissions = INTERNET/' buildozer.spec
-          sed -i 's/^android.archs =.*/android.archs = arm64-v8a/' buildozer.spec
-          sed -i 's/^android.api =.*/android.api = 35/' buildozer.spec
-          sed -i 's/^android.minapi =.*/android.minapi = 24/' buildozer.spec
-          sed -i 's/^android.ndk =.*/android.ndk = 25b/' buildozer.spec
-          sed -i 's/^android.ndk_api =.*/android.ndk_api = 24/' buildozer.spec
-          sed -i 's/^android.accept_sdk_license =.*/android.accept_sdk_license = True/' buildozer.spec
-          sed -i 's/^log_level =.*/log_level = 2/' buildozer.spec
+
+          python3 - <<'PY'
+          import os
+          import re
+
+          path = "buildozer.spec"
+
+          with open(path, "r", encoding="utf-8") as file:
+              content = file.read()
+
+          replacements = [
+              (r"^#?\s*title\s*=.*$", "title = MobileStream"),
+              (r"^#?\s*package\.name\s*=.*$", "package.name = mobilestream"),
+              (r"^#?\s*package\.domain\s*=.*$", "package.domain = org.imnotsneaker"),
+              (r"^#?\s*requirements\s*=.*$", "requirements = python3,kivy,flask,requests,pillow,paramiko"),
+              (r"^#?\s*android\.permissions\s*=.*$", "android.permissions = INTERNET"),
+              (r"^#?\s*android\.archs\s*=.*$", "android.archs = arm64-v8a"),
+              (r"^#?\s*android\.api\s*=.*$", "android.api = 35"),
+              (r"^#?\s*android\.minapi\s*=.*$", "android.minapi = 24"),
+              (r"^#?\s*android\.ndk\s*=.*$", "android.ndk = 25b"),
+              (r"^#?\s*android\.ndk_api\s*=.*$", "android.ndk_api = 24"),
+              (r"^#?\s*android\.accept_sdk_license\s*=.*$", "android.accept_sdk_license = True"),
+              (r"^#?\s*log_level\s*=.*$", "log_level = 2"),
+          ]
+
+          for pattern, replacement in replacements:
+              updated, count = re.subn(pattern, replacement, content, count=1, flags=re.MULTILINE)
+              if count == 0:
+                  raise RuntimeError(f"Could not find setting: {pattern}")
+              content = updated
+
+          if os.path.isfile("icon.png"):
+              content, count = re.subn(r"^#?\s*icon\.filename\s*=.*$", "icon.filename = %(source.dir)s/icon.png", content, count=1, flags=re.MULTILINE)
+              if count == 0:
+                  content = content.replace("[app]", "[app]\nicon.filename = %(source.dir)s/icon.png", 1)
+
+          with open(path, "w", encoding="utf-8") as file:
+              file.write(content)
+          PY
 
       - name: Build debug APK
         run: |
