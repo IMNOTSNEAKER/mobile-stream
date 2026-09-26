@@ -227,7 +227,12 @@ class DebugApp(App):
         try:
             url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
             context = ssl._create_unverified_context()
-            urllib.request.urlretrieve(url, custom_bin, context=context)
+            
+            # قراءة وتحميل الملف باستخدام urlopen لمنع أخطاء urllib
+            req = urllib.request.urlopen(url, context=context)
+            with open(custom_bin, 'wb') as f:
+                f.write(req.read())
+
             os.chmod(custom_bin, 0o755)
             self.log("[SUCCESS] Cloudflare downloaded successfully!")
             return custom_bin
