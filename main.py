@@ -18,7 +18,6 @@ from kivy.clock import Clock, mainthread
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 
-# طلب صلاحيات الأندرويد لقراءة الملفات
 try:
     from android.permissions import Permission, request_permissions
     HAS_ANDROID_PERM = True
@@ -43,7 +42,6 @@ def authenticate():
         {'WWW-Authenticate': 'Basic realm="Login Required"'},
     )
 
-# واجهة تصفح ملفات الموبايل
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -184,7 +182,6 @@ class DebugApp(App):
     def on_start(self):
         self.log(f"[CREDENTIALS] User: {USERNAME} | Pass: {PASSWORD}")
         
-        # طلب إذن الوصول للملفات عند بدء التطبيق لمنع الإغلاق المفاجئ
         if HAS_ANDROID_PERM:
             try:
                 request_permissions([
@@ -194,7 +191,6 @@ class DebugApp(App):
             except Exception as e:
                 self.log(f"[WARN] Failed to request permissions: {e}")
 
-        # بدء السيرفر بعد مهلة قصيرة لضمان استقرار الشاشة
         Clock.schedule_once(lambda dt: self.start_services(), 1)
 
     def start_services(self):
@@ -209,6 +205,7 @@ class DebugApp(App):
             self.log(f"[ERROR] Flask failed: {e}")
 
     def get_cloudflared_path(self):
+        # 1. البحث في مسارات الأندرويد الأساسية
         try:
             from jnius import autoclass
             PythonActivity = autoclass('org.kivy.android.PythonActivity')
@@ -219,14 +216,23 @@ class DebugApp(App):
         except Exception as e:
             self.log(f"[WARN] PyJnius lookup: {e}")
 
-        package_name = "org.imnotsneaker.mobilestream"
-        possible_paths = [
-            f"/data/app/{package_name}/lib/arm64/libcloudflared.so",
-            f"/data/data/{package_name}/lib/libcloudflared.so"
-        ]
-        for path in possible_paths:
-            if os.path.exists(path):
-                return path
+        # 2. البحث داخل مجلد بيانات التطبيق الداخلية
+        internal_dir = self.user_data_dir
+        custom_bin = os.path.join(internal_dir, "cloudflared")
+        if os.path.exists(custom_bin):
+            return custom_bin
+
+        # 3. إذا لم يوجد الملف، قم بتحميله تلقائياً لأجهزة الأندرويد (ARM64)
+        self.log("[INFO] Downloading Cloudflare binary for Android...")
+        try:
+            url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+            context = ssl._create_unverified_context()
+            urllib.request.urlretrieve(url, custom_bin, context=context)
+            os.chmod(custom_bin, 0o755)
+            self.log("[SUCCESS] Cloudflare downloaded successfully!")
+            return custom_bin
+        except Exception as e:
+            self.log(f"[ERROR] Download failed: {e}")
 
         return None
 
@@ -235,16 +241,10 @@ class DebugApp(App):
         try:
             cf_bin = self.get_cloudflared_path()
             if not cf_bin:
-                self.log("[CRITICAL ERROR] libcloudflared.so not found!")
+                self.log("[CRITICAL ERROR] Could not locate or download cloudflared!")
                 return
 
             self.log(f"[INFO] Cloudflare binary path: {cf_bin}")
-            
-            # إعطاء صلاحية التنفيذ للملف
-            try:
-                os.chmod(cf_bin, 0o755)
-            except Exception:
-                pass
 
             cmd = [
                 cf_bin, "tunnel",
