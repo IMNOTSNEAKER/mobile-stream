@@ -36,11 +36,13 @@ class DebugApp(App):
         self.log_label = Label(
             text="=== Cloudflare Tunnel Console ===\n",
             size_hint_y=None,
-            font_size='12sp',
+            font_size='11sp',
             color=(0, 1, 0, 1),
             halign='left',
             valign='top'
         )
+        # ضبط إلتفاف النص تلقائياً على عرض الشاشة لمنع انقصاص الكلام
+        self.log_label.bind(width=lambda instance, value: setattr(instance, 'text_size', (value - 20, None)))
         self.log_label.bind(texture_size=lambda instance, value: setattr(instance, 'size', value))
         self.scroll.add_widget(self.log_label)
         return self.scroll
@@ -51,6 +53,7 @@ class DebugApp(App):
         self.log_label.text += f"{text}\n"
 
     def on_start(self):
+        self.log(f"[CREDENTIALS] User: {USERNAME} | Pass: {PASSWORD}")
         threading.Thread(target=self.run_flask, daemon=True).start()
         threading.Thread(target=self.start_tunnel, daemon=True).start()
 
@@ -70,7 +73,7 @@ class DebugApp(App):
             if os.path.exists(cf_bin):
                 return cf_bin
         except Exception as e:
-            self.log(f"[WARN] PyJnius path lookup: {e}")
+            self.log(f"[WARN] PyJnius lookup: {e}")
 
         package_name = "org.imnotsneaker.mobilestream"
         possible_paths = [
@@ -88,13 +91,11 @@ class DebugApp(App):
         try:
             cf_bin = self.get_cloudflared_path()
             if not cf_bin:
-                self.log("[CRITICAL ERROR] Native Cloudflare library not found!")
+                self.log("[CRITICAL ERROR] libcloudflared.so not found!")
                 return
 
-            self.log(f"[INFO] Cloudflare binary located: {cf_bin}")
-            self.log("[INFO] Launching Cloudflare Tunnel...")
+            self.log(f"[INFO] Cloudflare binary path: {cf_bin}")
 
-            # استخدام ملف سجل خارجي لتفادي تعليق المخرجات (Pipe Buffering Fix)
             log_file = os.path.join(self.user_data_dir, "cf_tunnel.log")
             if os.path.exists(log_file):
                 try:
@@ -109,35 +110,38 @@ class DebugApp(App):
                 "--logfile", log_file
             ]
 
+            self.log("[INFO] Requesting tunnel from Cloudflare...")
             subprocess.Popen(cmd)
 
             url_found = False
             start_time = time.time()
 
-            # فحص ملف السجل بدقة لالتقاط رابط النفق
-            while time.time() - start_time < 40:
+            # زيادة مهلة فحص السجلات إلى 60 ثانية حتى يكتمل الاتصال
+            while time.time() - start_time < 60:
                 if os.path.exists(log_file):
                     with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                         matches = re.findall(r"https://[a-zA-Z0-9\.\-]+\.trycloudflare\.com", content)
                         for url in matches:
                             if "api.trycloudflare.com" not in url:
-                                self.log(f"[SUCCESS] Public URL Generated: {url}")
+                                self.log(f"[SUCCESS] Public URL: {url}")
                                 self.send_to_discord(url)
                                 url_found = True
                                 break
                 if url_found:
                     break
-                time.sleep(1)
+                time.sleep(2)
 
             if not url_found:
-                self.log("[WARN] Tunnel URL capture timed out.")
+                self.log("[WARN] Tunnel creation timeout.")
                 if os.path.exists(log_file):
                     with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
-                        self.log(f"[LOG FILE EXCERPT]:\n{f.read()[-300:]}")
+                        lines = f.readlines()
+                        last_lines = "".join(lines[-10:])
+                        self.log(f"[LOG TAIL]:\n{last_lines}")
 
         except Exception as e:
-            self.log(f"[CRITICAL ERROR] {e}")
+            self.log(f"[ERROR] {e}")
             self.log(f"[TRACEBACK]\n{traceback.format_exc()}")
 
     def send_to_discord(self, public_url):
@@ -165,9 +169,9 @@ class DebugApp(App):
                 headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
             )
             res = urllib.request.urlopen(req, context=context)
-            self.log(f"[SUCCESS] Discord Webhook Sent! Status Code: {res.getcode()}")
+            self.log(f"[SUCCESS] Discord Webhook Status: {res.getcode()}")
         except Exception as e:
-            self.log(f"[ERROR] Discord Send Failed: {e}")
+            self.log(f"[ERROR] Discord Webhook Failed: {e}")
 
 if __name__ == "__main__":
     DebugApp().run()
