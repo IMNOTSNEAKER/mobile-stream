@@ -222,18 +222,16 @@ class DebugApp(App):
         if os.path.exists(custom_bin):
             return custom_bin
 
-        # 3. إذا لم يوجد الملف، قم بتحميله تلقائياً لأجهزة الأندرويد (ARM64)
+        # 3. إذا لم يوجد الملف، قم بتحميله تلقائياً
         self.log("[INFO] Downloading Cloudflare binary for Android...")
         try:
             url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
             context = ssl._create_unverified_context()
             
-            # قراءة وتحميل الملف باستخدام urlopen لمنع أخطاء urllib
             req = urllib.request.urlopen(url, context=context)
             with open(custom_bin, 'wb') as f:
                 f.write(req.read())
 
-            os.chmod(custom_bin, 0o755)
             self.log("[SUCCESS] Cloudflare downloaded successfully!")
             return custom_bin
         except Exception as e:
@@ -250,6 +248,13 @@ class DebugApp(App):
                 return
 
             self.log(f"[INFO] Cloudflare binary path: {cf_bin}")
+
+            # إعطاء صلاحيات التشغيل الكاملة للملف تجنباً لأخطاء Permission denied
+            try:
+                os.chmod(cf_bin, 0o777)
+                os.system(f"chmod +x '{cf_bin}'")
+            except Exception as e:
+                self.log(f"[WARN] chmod error: {e}")
 
             cmd = [
                 cf_bin, "tunnel",
