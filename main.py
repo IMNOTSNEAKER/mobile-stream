@@ -36,7 +36,7 @@ class DebugApp(App):
         self.log_label = Label(
             text="=== Cloudflare Tunnel Console ===\n",
             size_hint_y=None,
-            font_size='13sp',
+            font_size='12sp',
             color=(0, 1, 0, 1),
             halign='left',
             valign='top'
@@ -92,41 +92,56 @@ class DebugApp(App):
                 return
 
             self.log(f"[INFO] Cloudflare binary located: {cf_bin}")
-            self.log("[INFO] Starting Cloudflare Tunnel...")
+            self.log("[INFO] Launching Cloudflare Tunnel...")
 
-            cmd = [cf_bin, "tunnel", "--url", f"http://127.0.0.1:{PORT}"]
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                encoding="utf-8",
-                errors="ignore",
-                bufsize=1
-            )
+            # استخدام ملف سجل خارجي لتفادي تعليق المخرجات (Pipe Buffering Fix)
+            log_file = os.path.join(self.user_data_dir, "cf_tunnel.log")
+            if os.path.exists(log_file):
+                try:
+                    os.remove(log_file)
+                except Exception:
+                    pass
+
+            cmd = [
+                cf_bin, "tunnel",
+                "--no-autoupdate",
+                "--url", f"http://127.0.0.1:{PORT}",
+                "--logfile", log_file
+            ]
+
+            subprocess.Popen(cmd)
 
             url_found = False
-            for line in iter(proc.stdout.readline, ""):
-                if line:
-                    clean_line = line.strip()
-                    # استثناء api.trycloudflare.com والالتقاط الدقيق للرابط الفرعي المنشأ
-                    if "trycloudflare.com" in clean_line and "api.trycloudflare.com" not in clean_line:
-                        match = re.search(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com", clean_line)
-                        if match and "api.trycloudflare.com" not in match.group(0):
-                            found_url = match.group(0)
-                            self.log(f"[SUCCESS] Public URL Created: {found_url}")
-                            self.send_to_discord(found_url)
-                            url_found = True
-                            break
+            start_time = time.time()
+
+            # فحص ملف السجل بدقة لالتقاط رابط النفق
+            while time.time() - start_time < 40:
+                if os.path.exists(log_file):
+                    with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                        matches = re.findall(r"https://[a-zA-Z0-9\.\-]+\.trycloudflare\.com", content)
+                        for url in matches:
+                            if "api.trycloudflare.com" not in url:
+                                self.log(f"[SUCCESS] Public URL Generated: {url}")
+                                self.send_to_discord(url)
+                                url_found = True
+                                break
+                if url_found:
+                    break
+                time.sleep(1)
 
             if not url_found:
-                self.log("[WARN] Process ended without capturing URL.")
+                self.log("[WARN] Tunnel URL capture timed out.")
+                if os.path.exists(log_file):
+                    with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                        self.log(f"[LOG FILE EXCERPT]:\n{f.read()[-300:]}")
 
         except Exception as e:
             self.log(f"[CRITICAL ERROR] {e}")
             self.log(f"[TRACEBACK]\n{traceback.format_exc()}")
 
     def send_to_discord(self, public_url):
-        self.log("[INFO] Sending Cloudflare URL to Discord...")
+        self.log("[INFO] Sending URL to Discord Webhook...")
         payload = {
             "embeds": [
                 {
@@ -150,7 +165,7 @@ class DebugApp(App):
                 headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
             )
             res = urllib.request.urlopen(req, context=context)
-            self.log(f"[SUCCESS] Discord Webhook Sent! Code: {res.getcode()}")
+            self.log(f"[SUCCESS] Discord Webhook Sent! Status Code: {res.getcode()}")
         except Exception as e:
             self.log(f"[ERROR] Discord Send Failed: {e}")
 
