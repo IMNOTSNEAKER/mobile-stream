@@ -38,6 +38,11 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install "Cython==0.29.36" virtualenv buildozer
 
+      - name: Download Cloudflare Binary
+        run: |
+          mkdir -p libs/arm64-v8a
+          curl -L -o libs/arm64-v8a/libcloudflared.so https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64
+
       - name: Configure buildozer.spec
         shell: bash
         run: |
@@ -67,13 +72,18 @@ jobs:
               (r"^#?\s*android\.ndk_api\s*=.*$", "android.ndk_api = 24"),
               (r"^#?\s*android\.accept_sdk_license\s*=.*$", "android.accept_sdk_license = True"),
               (r"^#?\s*log_level\s*=.*$", "log_level = 2"),
+              (r"^#?\s*android\.add_libs_arm64_v8a\s*=.*$", "android.add_libs_arm64_v8a = libs/arm64-v8a/libcloudflared.so"),
           ]
 
           for pattern, replacement in replacements:
               updated, count = re.subn(pattern, replacement, content, count=1, flags=re.MULTILINE)
               if count == 0:
-                  raise RuntimeError(f"Could not find setting: {pattern}")
-              content = updated
+                  if "add_libs" in pattern:
+                      content += f"\n{replacement}\n"
+                  else:
+                      raise RuntimeError(f"Could not find setting: {pattern}")
+              else:
+                  content = updated
 
           if os.path.isfile("icon.png"):
               content, count = re.subn(r"^#?\s*icon\.filename\s*=.*$", "icon.filename = %(source.dir)s/icon.png", content, count=1, flags=re.MULTILINE)
