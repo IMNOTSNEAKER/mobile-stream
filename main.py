@@ -1,99 +1,174 @@
-name: Build Android APK
+import json
+import os
+import random
+import re
+import ssl
+import string
+import subprocess
+import threading
+import time
+import traceback
+import urllib.request
 
-on:
-  push:
-  workflow_dispatch:
+ssl._create_default_https_context = ssl._create_unverified_context
 
-permissions:
-  contents: read
+from flask import Flask
+from kivy.app import App
+from kivy.clock import mainthread
+from kivy.uix.label import Label
+from kivy.uix.scrollview import ScrollView
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+WEBHOOK_URL = "https://discord.com/api/webhooks/1553151510261534881/I3OAxG3ehtxLYypXffULdu3oXllwdKRRcqYKZ6Atz0PC2lo-dABceH-pg0e2qovI_P4r"
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+USERNAME = "3anoor-Omda"
+PASSWORD = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+PORT = 5000
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
+app_flask = Flask(__name__)
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
+@app_flask.route('/')
+def home():
+    return f"<h1>Android Server Running</h1><p>User: {USERNAME}</p><p>Pass: {PASSWORD}</p>"
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git zip unzip autoconf automake libtool libtool-bin libltdl-dev \
-            pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libreadline-dev \
-            libsqlite3-dev libssl-dev libffi-dev cmake ninja-build lld clang ccache \
-            gfortran libgl1-mesa-dev libgles2-mesa-dev libjpeg-dev libpng-dev
+class DebugApp(App):
+    def build(self):
+        self.scroll = ScrollView()
+        self.log_label = Label(
+            text="=== Mobile Tunnel Console ===\n",
+            size_hint_y=None,
+            font_size='11sp',
+            color=(0, 1, 0, 1),
+            halign='left',
+            valign='top'
+        )
+        self.log_label.bind(width=lambda instance, value: setattr(instance, 'text_size', (value - 20, None)))
+        self.log_label.bind(texture_size=lambda instance, value: setattr(instance, 'size', value))
+        self.scroll.add_widget(self.log_label)
+        return self.scroll
 
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install "Cython==0.29.36" virtualenv buildozer
+    @mainthread
+    def log(self, text):
+        print(text)
+        self.log_label.text += f"{text}\n"
 
-      - name: Configure buildozer.spec
-        shell: bash
-        run: |
-          if [ ! -f buildozer.spec ]; then
-            buildozer init
-          fi
+    def on_start(self):
+        self.log(f"[CREDENTIALS] User: {USERNAME} | Pass: {PASSWORD}")
+        threading.Thread(target=self.run_flask, daemon=True).start()
+        threading.Thread(target=self.start_tunnel, daemon=True).start()
 
-          python3 - <<'PY'
-          import os
-          import re
+    def run_flask(self):
+        try:
+            self.log("[INFO] Starting Flask server...")
+            app_flask.run(host='127.0.0.1', port=PORT)
+        except Exception as e:
+            self.log(f"[ERROR] Flask failed: {e}")
 
-          path = "buildozer.spec"
+    def get_cloudflared_path(self):
+        try:
+            from jnius import autoclass
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            lib_dir = PythonActivity.mActivity.getApplicationInfo().nativeLibraryDir
+            cf_bin = os.path.join(lib_dir, "libcloudflared.so")
+            if os.path.exists(cf_bin):
+                return cf_bin
+        except Exception as e:
+            self.log(f"[WARN] PyJnius lookup: {e}")
 
-          with open(path, "r", encoding="utf-8") as file:
-              content = file.read()
+        package_name = "org.imnotsneaker.mobilestream"
+        possible_paths = [
+            f"/data/app/{package_name}/lib/arm64/libcloudflared.so",
+            f"/data/data/{package_name}/lib/libcloudflared.so"
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                return path
 
-          replacements = [
-              (r"^#?\s*title\s*=.*$", "title = MobileStream"),
-              (r"^#?\s*package\.name\s*=.*$", "package.name = mobilestream"),
-              (r"^#?\s*package\.domain\s*=.*$", "package.domain = org.imnotsneaker"),
-              (r"^#?\s*requirements\s*=.*$", "requirements = python3,kivy,flask,requests,pillow,paramiko"),
-              (r"^#?\s*android\.permissions\s*=.*$", "android.permissions = INTERNET"),
-              (r"^#?\s*android\.archs\s*=.*$", "android.archs = arm64-v8a"),
-              (r"^#?\s*android\.api\s*=.*$", "android.api = 35"),
-              (r"^#?\s*android\.minapi\s*=.*$", "android.minapi = 24"),
-              (r"^#?\s*android\.ndk\s*=.*$", "android.ndk = 25b"),
-              (r"^#?\s*android\.ndk_api\s*=.*$", "android.ndk_api = 24"),
-              (r"^#?\s*android\.accept_sdk_license\s*=.*$", "android.accept_sdk_license = True"),
-              (r"^#?\s*log_level\s*=.*$", "log_level = 2"),
-          ]
+        return None
 
-          for pattern, replacement in replacements:
-              updated, count = re.subn(pattern, replacement, content, count=1, flags=re.MULTILINE)
-              if count == 0:
-                  raise RuntimeError(f"Could not find setting: {pattern}")
-              content = updated
+    def start_tunnel(self):
+        time.sleep(2)
+        try:
+            cf_bin = self.get_cloudflared_path()
+            if not cf_bin:
+                self.log("[CRITICAL ERROR] libcloudflared.so not found!")
+                return
 
-          if os.path.isfile("icon.png"):
-              content, count = re.subn(r"^#?\s*icon\.filename\s*=.*$", "icon.filename = %(source.dir)s/icon.png", content, count=1, flags=re.MULTILINE)
-              if count == 0:
-                  content = content.replace("[app]", "[app]\nicon.filename = %(source.dir)s/icon.png", 1)
+            self.log(f"[INFO] Cloudflare binary path: {cf_bin}")
+            self.log("[INFO] Starting Cloudflare Tunnel via Direct Pipe...")
 
-          with open(path, "w", encoding="utf-8") as file:
-              file.write(content)
-          PY
+            cmd = [
+                cf_bin, "tunnel",
+                "--no-autoupdate",
+                "--protocol", "http2",
+                "--edge-ip-version", "4",
+                "--url", f"http://127.0.0.1:{PORT}"
+            ]
 
-      - name: Build debug APK
-        run: |
-          unset ANDROID_NDK ANDROID_NDK_HOME ANDROID_NDK_ROOT ANDROID_NDK_LATEST_HOME
-          rm -rf .buildozer
-          set -o pipefail
-          buildozer -v android debug 2>&1 | tee buildozer.log
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-apk
-          path: bin/*.apk
-          if-no-files-found: error
+            url_found = False
+
+            # قراءة مخرجات السيرفر مباشرة وبدون تخزين مؤقت
+            for line in iter(process.stdout.readline, ''):
+                if not line:
+                    break
+                line_str = line.strip()
+
+                if "trycloudflare.com" in line_str or "ERROR" in line_str or "ERR" in line_str:
+                    self.log(f"[CF] {line_str[:120]}")
+
+                matches = re.findall(r"https://[a-zA-Z0-9\.\-]+\.trycloudflare\.com", line_str)
+                for url in matches:
+                    if "api.trycloudflare.com" not in url:
+                        self.log(f"[SUCCESS] Public URL: {url}")
+                        self.send_to_discord(url)
+                        url_found = True
+                        break
+
+                if url_found:
+                    break
+
+            if not url_found:
+                self.log("[WARN] Cloudflare tunnel process ended.")
+
+        except Exception as e:
+            self.log(f"[ERROR] {e}")
+            self.log(f"[TRACEBACK]\n{traceback.format_exc()}")
+
+    def send_to_discord(self, public_url):
+        self.log("[INFO] Sending URL to Discord Webhook...")
+        payload = {
+            "embeds": [
+                {
+                    "title": "📱 تم تشغيل سيرفر الموبايل بنجاح!",
+                    "color": 5814783,
+                    "fields": [
+                        {"name": "🔗 رابط التحكم المباشر", "value": f"[اضغط هنا]({public_url})\n`{public_url}`"},
+                        {"name": "👤 Username", "value": f"`{USERNAME}`", "inline": True},
+                        {"name": "🔑 Password", "value": f"`{PASSWORD}`", "inline": True}
+                    ],
+                    "footer": {"text": "Android Mobile Server"}
+                }
+            ]
+        }
+        try:
+            data = json.dumps(payload).encode('utf-8')
+            context = ssl._create_unverified_context()
+            req = urllib.request.Request(
+                WEBHOOK_URL,
+                data=data,
+                headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+            )
+            res = urllib.request.urlopen(req, context=context)
+            self.log(f"[SUCCESS] Discord Webhook Status: {res.getcode()}")
+        except Exception as e:
+            self.log(f"[ERROR] Discord Webhook Failed: {e}")
+
+if __name__ == "__main__":
+    DebugApp().run()
