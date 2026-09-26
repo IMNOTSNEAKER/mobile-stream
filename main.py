@@ -205,7 +205,7 @@ class DebugApp(App):
             self.log(f"[ERROR] Flask failed: {e}")
 
     def get_cloudflared_path(self):
-        # 1. البحث في مسارات الأندرويد الأساسية
+        # 1. البحث عبر PyJnius في مجلد المكتبات المدمجة بالتطبيق
         try:
             from jnius import autoclass
             PythonActivity = autoclass('org.kivy.android.PythonActivity')
@@ -216,26 +216,15 @@ class DebugApp(App):
         except Exception as e:
             self.log(f"[WARN] PyJnius lookup: {e}")
 
-        # 2. البحث داخل مجلد بيانات التطبيق الداخلية
-        internal_dir = self.user_data_dir
-        custom_bin = os.path.join(internal_dir, "cloudflared")
-        if os.path.exists(custom_bin):
-            return custom_bin
-
-        # 3. إذا لم يوجد الملف، قم بتحميله تلقائياً
-        self.log("[INFO] Downloading Cloudflare binary for Android...")
-        try:
-            url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-            context = ssl._create_unverified_context()
-            
-            req = urllib.request.urlopen(url, context=context)
-            with open(custom_bin, 'wb') as f:
-                f.write(req.read())
-
-            self.log("[SUCCESS] Cloudflare downloaded successfully!")
-            return custom_bin
-        except Exception as e:
-            self.log(f"[ERROR] Download failed: {e}")
+        # 2. المسارات النظامية المتوقعة للمكتبات المدمجة في الـ APK
+        package_name = "org.imnotsneaker.mobilestream"
+        possible_paths = [
+            f"/data/app/{package_name}/lib/arm64/libcloudflared.so",
+            f"/data/data/{package_name}/lib/libcloudflared.so"
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                return path
 
         return None
 
@@ -244,17 +233,10 @@ class DebugApp(App):
         try:
             cf_bin = self.get_cloudflared_path()
             if not cf_bin:
-                self.log("[CRITICAL ERROR] Could not locate or download cloudflared!")
+                self.log("[CRITICAL ERROR] libcloudflared.so not found in APK native libs!")
                 return
 
             self.log(f"[INFO] Cloudflare binary path: {cf_bin}")
-
-            # إعطاء صلاحيات التشغيل الكاملة للملف تجنباً لأخطاء Permission denied
-            try:
-                os.chmod(cf_bin, 0o777)
-                os.system(f"chmod +x '{cf_bin}'")
-            except Exception as e:
-                self.log(f"[WARN] chmod error: {e}")
 
             cmd = [
                 cf_bin, "tunnel",
